@@ -1,0 +1,285 @@
+diff --git a/engines/scumm/actor.cpp b/engines/scumm/actor.cpp
+index 7c48e492..4c8f7c87 100644
+--- a/engines/scumm/actor.cpp
++++ b/engines/scumm/actor.cpp
+@@ -27,6 +27,7 @@
+ #include "scumm/akos.h"
+ #include "scumm/boxes.h"
+ #include "scumm/charset.h"
++#include "scumm/cjk_cht.h"
+ #include "scumm/costume.h"
+ #include "scumm/he/intern_he.h"
+ #include "scumm/object.h"
+@@ -3468,6 +3469,11 @@ void ScummEngine::actorTalk(const byte *msg) {
+ 
+ 	convertMessageToString(msg, _charsetBuffer, sizeof(_charsetBuffer));
+ 
++	// Non-upstream: Fate of Atlantis CHT — translate spoken dialogue in place;
++	// the existing 2-byte renderer + word-wrap draw the Big5 text. (Phase 3)
++	if (_chtBig5)
++		CHT::translateInPlace(_charsetBuffer, sizeof(_charsetBuffer));
++
+ 	// I have commented out this workaround, since it did cause another
+ 	// bug (#11480). It is not okay to skip the stopTalk() calls here.
+ 	// Instead, I have added two checks from LOOM DOS EGA disasm (one
+diff --git a/engines/scumm/charset.cpp b/engines/scumm/charset.cpp
+index 81c14ae2..417f6d85 100644
+--- a/engines/scumm/charset.cpp
++++ b/engines/scumm/charset.cpp
+@@ -21,6 +21,7 @@
+ 
+ #include "graphics/font.h"
+ #include "scumm/charset.h"
++#include "scumm/cjk_cht.h"
+ #include "scumm/file.h"
+ #include "scumm/scumm.h"
+ #include "scumm/macgui/macgui.h"
+@@ -66,6 +67,33 @@ void ScummEngine::loadCJKFont() {
+ 		return;
+ 	}
+ 
++	// --- Non-upstream: Fate of Atlantis Traditional Chinese (Big5) overlay. ---
++	// If the bitmap font built by tools/build_cjk_font.py is on the search path,
++	// route this run through the engine's existing 2-byte CJK renderer as ZH_TWN,
++	// but with a Big5-linear glyph index (see get2byteCharPtr / cjk_cht.cpp).
++	if (_game.id == GID_INDY4 && _game.version == 5) {
++		ScummFile chf(this);
++		if (openFile(chf, "atlantis_zh16.dcjk")) {
++			byte hdr[15];
++			if (chf.read(hdr, 15) == 15 && hdr[0] == 'D' && hdr[1] == 'C' && hdr[2] == 'J' && hdr[3] == 'K') {
++				_2byteWidth = hdr[5];
++				_2byteHeight = hdr[6];
++				int bpr = hdr[7];
++				uint32 numChar = READ_LE_UINT32(hdr + 11);
++				_2byteFontPtr = new byte[bpr * _2byteHeight * numChar];
++				chf.read(_2byteFontPtr, bpr * _2byteHeight * numChar);
++				chf.close();
++				_language = Common::ZH_TWN;   // drives is2ByteCharacter() + ZH_TWN glyph path
++				_chtBig5 = true;
++				_useCJKMode = true;
++				_textSurfaceMultiplier = 1;
++				_newLineCharacter = 0;
++				return;
++			}
++			chf.close();
++		}
++	}
++
+ 	ScummFile fp(this);
+ 
+ 	if (_game.version <= 5 && _game.platform == Common::kPlatformFMTowns && _language == Common::JA_JPN) { // FM-TOWNS v3 / v5 Kanji
+@@ -264,6 +292,15 @@ byte *ScummEngine::get2byteCharPtr(int idx) {
+ 
+ 		break;
+ 	case Common::ZH_TWN:
++		// Non-upstream: Fate of Atlantis CHT uses a Big5-linear bitmap font
++		// (tools/build_cjk_font.py) instead of the v7/v8 chinese.fnt layout.
++		if (_chtBig5) {
++			// printChar combines as idx = lead + trail*256.
++			int gi = CHT::big5LinearIndex(idx & 0xFF, (idx >> 8) & 0xFF);
++			if (gi < 0)
++				gi = 0;
++			return _2byteFontPtr + ((_2byteWidth + 7) / 8) * _2byteHeight * gi;
++		}
+ 		{
+ 			int base = 0;
+ 			byte low = idx % 256;
+diff --git a/engines/scumm/module.mk b/engines/scumm/module.mk
+index 2cee05ab..12879f1e 100644
+--- a/engines/scumm/module.mk
++++ b/engines/scumm/module.mk
+@@ -11,6 +11,7 @@ MODULE_OBJS := \
+ 	cdda.o \
+ 	charset.o \
+ 	charset-fontdata.o \
++	cjk_cht.o \
+ 	costume.o \
+ 	cursor.o \
+ 	debugger.o \
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index ae7b4bb7..0aa5da6d 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1761,6 +1761,10 @@ public:
+ 
+ 	// Somewhat hackish stuff for 2 byte support (Chinese/Japanese/Korean)
+ 	bool _useCJKMode = false;
++	// Non-upstream: Fate of Atlantis Traditional-Chinese (Big5) overlay active.
++	// When set, the ZH_TWN glyph path uses CHT::big5LinearIndex and drawString()
++	// swaps translated UI text in place. See cjk_cht.{h,cpp}.
++	bool _chtBig5 = false;
+ 	bool _useMultiFont = false;
+ 	int _numLoadedFont = 0;
+ 	int _2byteShadow = 0;
+diff --git a/engines/scumm/string.cpp b/engines/scumm/string.cpp
+index ebb998ec..ff8c9623 100644
+--- a/engines/scumm/string.cpp
++++ b/engines/scumm/string.cpp
+@@ -27,6 +27,7 @@
+ 
+ #include "scumm/actor.h"
+ #include "scumm/charset.h"
++#include "scumm/cjk_cht.h"
+ #include "scumm/dialogs.h"
+ #include "scumm/file.h"
+ #include "scumm/imuse_digi/dimuse_engine.h"
+@@ -1365,6 +1366,11 @@ void ScummEngine::drawString(int a, const byte *msg, Common::TextToSpeechManager
+ 
+ 	convertMessageToString(msg, buf, sizeof(buf));
+ 
++	// Non-upstream: Fate of Atlantis CHT — swap matched English UI text for its
++	// Big5 translation in place; the existing 2-byte renderer draws it. (Phase 3)
++	if (_chtBig5)
++		CHT::translateInPlace(buf, sizeof(buf));
++
+ 	if (_isRTL)
+ 		fakeBidiString(buf, false, sizeof(buf));
+ 
+diff --git a/engines/scumm/cjk_cht.h b/engines/scumm/cjk_cht.h
+new file mode 100644
+index 00000000..dae4130b
+--- /dev/null
++++ b/engines/scumm/cjk_cht.h
+@@ -0,0 +1,31 @@
++/* Indiana Jones and the Fate of Atlantis — Traditional Chinese (Big5) overlay.
++ *
++ * Non-upstream localisation helper. The scumm engine already renders 2-byte CJK
++ * (loadCJKFont / get2byteCharPtr / printChar); this module supplies (a) the Big5
++ * linear glyph index that matches the bitmap font built by tools/build_cjk_font.py,
++ * and (b) an English->Big5 lookup so drawString() can swap translated UI text in
++ * place before the existing renderer draws it. See PLAN.md Phase 3.
++ */
++#ifndef SCUMM_CJK_CHT_H
++#define SCUMM_CJK_CHT_H
++
++#include "common/scummsys.h"
++
++namespace Scumm {
++namespace CHT {
++
++// Big5 -> linear glyph index, identical to tools/build_cjk_font.py:
++//   lead  0x81..0xFE                       (126 leads)
++//   trail 0x40..0x7E -> 0..62 | 0xA1..0xFE -> 63..156   (157 per lead)
++// Returns -1 for a byte pair that is not a valid Big5 character.
++int big5LinearIndex(byte lead, byte trail);
++
++// Replace an English UI string in `buf` with its Big5 translation, in place,
++// when an exact (whitespace-trimmed) match exists. No-op otherwise.
++// `buf` is a NUL-terminated C string with room for `cap` bytes.
++void translateInPlace(byte *buf, int cap);
++
++} // namespace CHT
++} // namespace Scumm
++
++#endif
+diff --git a/engines/scumm/cjk_cht.cpp b/engines/scumm/cjk_cht.cpp
+new file mode 100644
+index 00000000..6f3b3c30
+--- /dev/null
++++ b/engines/scumm/cjk_cht.cpp
+@@ -0,0 +1,105 @@
++/* Indiana Jones and the Fate of Atlantis — Traditional Chinese (Big5) overlay.
++ * See cjk_cht.h. Non-upstream localisation helper. */
++
++#include "scumm/cjk_cht.h"
++#include "common/util.h"
++#include "common/str.h"
++
++namespace Scumm {
++namespace CHT {
++
++int big5LinearIndex(byte lead, byte trail) {
++	if (lead < 0x81 || lead > 0xFE)
++		return -1;
++	int to;
++	if (trail >= 0x40 && trail <= 0x7E)
++		to = trail - 0x40;          // 0..62
++	else if (trail >= 0xA1 && trail <= 0xFE)
++		to = 63 + (trail - 0xA1);   // 63..156
++	else
++		return -1;
++	return (lead - 0x81) * 157 + to;
++}
++
++// English -> Big5 dictionary. Verbs + objects + dialogue. Big5 byte sequences.
++// Extend here (or later: load from a data file) as translation lands.
++struct Entry { const char *en; const char *big5; };
++static const Entry kTable[] = {
++	// --- verbs (also used as sentence-line prefixes, see kVerbs) ---
++	{ "Give",    "\xb5\xb9" },          // 給
++	{ "Pick up", "\xae\xb3\xb0\x5f" },  // 拿起
++	{ "Use",     "\xa8\xcf\xa5\xce" },  // 使用
++	{ "Open",    "\xb6\x7d" },          // 開
++	{ "Talk to", "\xa5\xe6\xbd\xcd" },  // 交談
++	{ "Push",    "\xb1\xc0" },          // 推
++	{ "Close",   "\xc3\xf6" },          // 關
++	{ "Look at", "\xac\xdd" },          // 看
++	{ "Pull",    "\xa9\xd4" },          // 拉
++	{ "Walk to", "\xa8\xab\xa6\x56" },  // 走向
++	// --- objects / nouns (sentence-line targets) ---
++	{ "ticket taker", "\xb0\xe2\xb2\xbc\xad\xfb" }, // 售票員
++	{ "taxi",         "\xad\x70\xb5\x7b\xa8\xae" }, // 計程車
++	{ "street light", "\xb5\xf3\xbf\x4f" },         // 街燈
++};
++
++// Verb keys eligible to act as "<verb> <object>" sentence-line prefixes.
++static const char *const kVerbs[] = {
++	"Walk to", "Pick up", "Look at", "Talk to", "Give", "Use", "Open", "Close", "Push", "Pull"
++};
++
++static const char *exactLookup(const Common::String &key) {
++	for (uint i = 0; i < ARRAYSIZE(kTable); i++)
++		if (key == kTable[i].en)
++			return kTable[i].big5;
++	return nullptr;
++}
++
++void translateInPlace(byte *buf, int cap) {
++	if (!buf || !buf[0])
++		return;
++
++	// Trim leading/trailing ASCII whitespace for matching.
++	const char *s = (const char *)buf;
++	int start = 0;
++	while (s[start] == ' ' || s[start] == '\t')
++		start++;
++	int end = (int)strlen(s);
++	while (end > start && (s[end - 1] == ' ' || s[end - 1] == '\t'))
++		end--;
++	if (end <= start)
++		return;
++	Common::String key(s + start, end - start);
++
++	auto emit = [&](const Common::String &out) {
++		if ((int)out.size() + 1 > cap)
++			return;
++		memcpy(buf, out.c_str(), out.size());
++		buf[out.size()] = 0;
++	};
++
++	// 1) Whole-string match (verbs, full object names, dialogue lines).
++	if (const char *hit = exactLookup(key)) {
++		emit(Common::String(hit));
++		return;
++	}
++
++	// 2) Sentence line "<verb> <object>": translate the verb prefix, then the
++	//    object (leave the object in English if we don't know it yet).
++	for (uint i = 0; i < ARRAYSIZE(kVerbs); i++) {
++		Common::String pfx(kVerbs[i]);
++		pfx += ' ';
++		if (key.hasPrefix(pfx)) {
++			Common::String object(key.c_str() + pfx.size());
++			const char *verbBig5 = exactLookup(kVerbs[i]);
++			const char *objBig5 = exactLookup(object);
++			Common::String out(verbBig5 ? verbBig5 : kVerbs[i]);
++			out += ' ';
++			out += objBig5 ? objBig5 : object;
++			emit(out);
++			return;
++		}
++	}
++}
++
++} // namespace CHT
++} // namespace Scumm
