@@ -8,7 +8,17 @@ Big5 never emits 0x09/0x0A/0x0D, so tab/newline framing is byte-safe. Characters
 with no Big5 mapping are reported (so the glyph font / translation can be fixed)
 and skipped rather than silently corrupting the table.
 """
-import sys, argparse, os
+import sys, argparse, os, re
+
+# SCUMM newline control code (0xFF 0x01). In the Chinese value, author line
+# breaks as a literal "\n" (backslash-n); they become this in the .tab so the
+# engine wraps long dialogue itself (CJK has no spaces to wrap on).
+SCUMM_NL = b"\xff\x01"
+
+
+def normalize_key(s):
+    # Match Scumm::CHT::normalizeKey: collapse whitespace runs to one space, trim.
+    return re.sub(r"\s+", " ", s).strip()
 
 
 def main():
@@ -27,13 +37,15 @@ def main():
                 print(f"  warn L{lineno}: no TAB, skipped: {line!r}", file=sys.stderr)
                 continue
             en, zh = line.split("\t", 1)
-            en, zh = en.strip(), zh.strip()
+            en, zh = normalize_key(en), zh.strip()
             if not en or not zh:
                 continue
+            # author line breaks in the Chinese as literal "\n"
+            segments = zh.split("\\n")
             try:
-                big5 = zh.encode("big5")
+                big5 = SCUMM_NL.join(seg.encode("big5") for seg in segments)
             except UnicodeEncodeError as e:
-                ch = zh[e.start:e.start + 1]
+                ch = e.object[e.start:e.start + 1]
                 print(f"  BAD L{lineno}: U+{ord(ch):04X} {ch!r} not in Big5 ({en!r})", file=sys.stderr)
                 bad += 1
                 continue

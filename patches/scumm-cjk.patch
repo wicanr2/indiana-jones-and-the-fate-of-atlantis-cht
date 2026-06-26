@@ -189,10 +189,10 @@ index 00000000..03c46299
 +#endif
 diff --git a/engines/scumm/cjk_cht.cpp b/engines/scumm/cjk_cht.cpp
 new file mode 100644
-index 00000000..842780d6
+index 00000000..6c13029b
 --- /dev/null
 +++ b/engines/scumm/cjk_cht.cpp
-@@ -0,0 +1,141 @@
+@@ -0,0 +1,167 @@
 +/* Indiana Jones and the Fate of Atlantis — Traditional Chinese (Big5) overlay.
 + * See cjk_cht.h. Non-upstream localisation helper. */
 +
@@ -285,21 +285,47 @@ index 00000000..842780d6
 +	return (it != d.end()) ? it->_value.c_str() : nullptr;
 +}
 +
++// Canonical lookup key: drop SCUMM control sequences (0xFF + code [+ 2 args]),
++// collapse whitespace runs to one space, trim. Must match the exact same
++// normalisation done by tools/build_translation.py so multi-line dialogue
++// (which carries 0xFF 0x01 newlines) still matches a single-line TSV key.
++static Common::String normalizeKey(const byte *buf) {
++	Common::String k;
++	bool lastSpace = true;
++	int i = 0;
++	while (buf[i]) {
++		byte c = buf[i];
++		if (c == 0xFF) {
++			byte code = buf[i + 1];
++			if (code == 0x04 || code == 0x06 || code == 0x07 ||
++				code == 0x09 || code == 0x0A || code == 0x0C || code == 0x0E)
++				i += 4;          // control byte + 2 arg bytes
++			else
++				i += 2;          // bare control (newline/keep/wait/...)
++			if (!lastSpace) { k += ' '; lastSpace = true; }
++			continue;
++		}
++		if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
++			if (!lastSpace) { k += ' '; lastSpace = true; }
++			i++;
++			continue;
++		}
++		k += (char)c;
++		lastSpace = false;
++		i++;
++	}
++	while (!k.empty() && k.lastChar() == ' ')
++		k.deleteLastChar();
++	return k;
++}
++
 +void translateInPlace(byte *buf, int cap) {
 +	if (!buf || !buf[0])
 +		return;
 +
-+	// Trim leading/trailing ASCII whitespace for matching.
-+	const char *s = (const char *)buf;
-+	int start = 0;
-+	while (s[start] == ' ' || s[start] == '\t')
-+		start++;
-+	int end = (int)strlen(s);
-+	while (end > start && (s[end - 1] == ' ' || s[end - 1] == '\t'))
-+		end--;
-+	if (end <= start)
++	Common::String key = normalizeKey(buf);
++	if (key.empty())
 +		return;
-+	Common::String key(s + start, end - start);
 +
 +	// 1) Whole-string match (verbs, full object names, dialogue lines).
 +	if (const char *hit = exactLookup(key)) {
