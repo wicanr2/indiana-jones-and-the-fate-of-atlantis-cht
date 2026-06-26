@@ -35,6 +35,10 @@
 
 ![Indiana Jones 開場標題](screenshots/foa_intro.png)
 
+然後,連那張標題都說起了中文。我們在 **INDIANA JONES** 的橘金 logo 下,補上**設計過的中文片名**——主標 **印第安納·瓊斯** 走同款橘金漸層、副標 **亞特蘭提斯之謎** 走 FATE OF ATLANTIS 那種黃色斜體,描邊、配色都對著原版 logo 調,塞進英文標題與工作人員名單之間的那道縫裡,不搶戲、不突兀。引擎在標題房即時把這兩行字按當下調色盤配色疊上去,連淡入都跟著 logo 一起亮起來:
+
+![FOA 中文標題](screenshots/foa_cht_title.png)
+
 原版的操作介面是滿屏英文:底部那排動詞(Give / Pick up / Use / Open / Talk to / Push / Close / Look at / Pull)、青色的句子列、物品欄:
 
 ![FOA 英文動詞介面](screenshots/foa_gameplay.png)
@@ -170,6 +174,8 @@ scumm:atlantis   Indiana Jones and the Fate of Atlantis (CD/DOS/English)
 
 **動詞格對齊。** 底部動詞面板載入 `atlantis_zh16.dcjk`(內含 12×12 點陣)當 UI 字。早期版本字的基線偏上,按鈕格的分隔線會穿過筆畫;`drawVerb` 對 Big5 動詞加一個垂直微調(`_chtVerbYOffset`),修正後 12px 字在每個格內**垂直置中**,分隔線不再切到字(對照 [中文介面截圖](#contrib))。
 
+**標題疊圖。** 中文片名不是點陣字硬寫,是離線設計好的圖:`tools/title/design_title.py`(docker + PIL)把「印第安納·瓊斯 / 亞特蘭提斯之謎」渲成黃橘漸層 + 深棕描邊 + 斜體,nearest 縮成像素風,烘成 `atlantis_title.spr`(`[u16 x][u16 y][u16 w][u16 h]` + RGBA)。`drawAtlantisTitle()` 掛在 `drawDirtyScreenParts()` 尾端,只在標題房(room 4)生效:對每個不透明像素用當下 `_currentPalette` 做**最近色比對**再寫進 framebuffer——所以淡入時中文跟著 logo 一起由暗轉亮,顏色永遠對得上調色盤。原版標題圖一個 byte 沒改。
+
 ---
 
 <a name="route"></a>
@@ -197,7 +203,7 @@ scumm:atlantis   Indiana Jones and the Fate of Atlantis (CD/DOS/English)
 
 1. 準備遊戲資料:CD 版 ISO 解開後的 `ATLANTIS/`(需含 `ATLANTIS.000` 索引),放成 `game/`。
 2. 取 ScummVM 原始碼,套 `patches/scumm-cjk.patch`,以 `--enable-engine=scumm` 編譯。
-3. 放進 `game/`:字型(`tools/build_cjk_font.py` 烘的 `atlantis_zh{12,16,24}.dcjk`)、譯表(`tools/build_translation.py` 由 `translations/zh.tsv` 編)、中文配音(`tools/build_voice.py` 接 `scripts/dub_batch.sh` 烘的 `game/voice/*.voc` 與 `atlantis_voice.tab`)。
+3. 放進 `game/`:字型(`tools/build_cjk_font.py` 烘的 `atlantis_zh{12,16,24}.dcjk`)、譯表(`tools/build_translation.py` 由 `translations/zh.tsv` 編)、中文配音(`tools/build_voice.py` 接 `scripts/dub_batch.sh` 烘的 `game/voice/*.voc` 與 `atlantis_voice.tab`)、中文標題圖(`tools/title/design_title.py` 烘的 `atlantis_title.spr`,源檔在 `fonts/`)。
 4. 啟動即偵測為 *Indiana Jones and the Fate of Atlantis*:底部動詞、句子列、對白全顯示中文,語音為中文配音。**F8** 切字幕語言(中 / 英)、**F9** 切語音(中 / 英)。
 
 ---

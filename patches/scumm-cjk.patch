@@ -104,6 +104,87 @@ index 81c14ae2..e079465d 100644
  		{
  			int base = 0;
  			byte low = idx % 256;
+diff --git a/engines/scumm/gfx.cpp b/engines/scumm/gfx.cpp
+index bf85f13c..d9f96624 100644
+--- a/engines/scumm/gfx.cpp
++++ b/engines/scumm/gfx.cpp
+@@ -532,6 +532,67 @@ void ScummEngine::markRectAsDirty(VirtScreenNumber virt, int left, int right, in
+  * graphics to the actual display, as needed. In addition, the 'shaking'
+  * code in the backend is controlled from here.
+  */
++// FOA CHT: blit the designed Chinese title overlay (印第安納·瓊斯 / 亞特蘭提斯之謎)
++// onto the title room. atlantis_title.spr = [u16 x][u16 y][u16 w][u16 h] + RGBA px.
++// Opaque px are colour-matched to the live palette so the text fades with the logo.
++void ScummEngine::drawAtlantisTitle() {
++	if (_game.id != GID_INDY4 || _currentRoom != 4)
++		return;
++	static int loaded = -1;
++	static uint16 tx = 0, ty = 0, tw = 0, th = 0;
++	static byte *trgba = nullptr;
++	if (loaded < 0) {
++		loaded = 0;
++		ScummFile *f = instantiateScummFile(false);
++		if (f && openFile(*f, Common::Path("atlantis_title.spr"))) {
++			tx = f->readUint16LE(); ty = f->readUint16LE();
++			tw = f->readUint16LE(); th = f->readUint16LE();
++			uint32 n = (uint32)tw * th * 4;
++			trgba = new byte[n];
++			f->read(trgba, n);
++			loaded = 1;
++		}
++		delete f;
++	}
++	if (loaded != 1)
++		return;
++
++	Graphics::Surface *screen = _system->lockScreen();
++	if (!screen || screen->format.bytesPerPixel != 1) {
++		if (screen) _system->unlockScreen();
++		return;
++	}
++	const byte *pal = _currentPalette;
++	// small RGB->index cache (palette is constant for this call)
++	uint32 cacheKey[64]; byte cacheVal[64]; int cacheN = 0;
++	for (uint16 py = 0; py < th && ty + py < (uint)screen->h; py++) {
++		byte *dst = (byte *)screen->getBasePtr(tx, ty + py);
++		const byte *src = trgba + (uint32)py * tw * 4;
++		for (uint16 px = 0; px < tw; px++, src += 4, dst++) {
++			if (tx + px >= (uint)screen->w)
++				break;
++			if (src[3] < 128)
++				continue;
++			uint32 key = ((uint32)src[0] << 16) | ((uint32)src[1] << 8) | src[2];
++			int idx = -1;
++			for (int c = 0; c < cacheN; c++)
++				if (cacheKey[c] == key) { idx = cacheVal[c]; break; }
++			if (idx < 0) {
++				int best = 0, bestd = 0x7fffffff;
++				for (int i = 0; i < 256; i++) {
++					int dr = src[0] - pal[i*3+0], dg = src[1] - pal[i*3+1], db = src[2] - pal[i*3+2];
++					int d = dr*dr + dg*dg + db*db;
++					if (d < bestd) { bestd = d; best = i; }
++				}
++				idx = best;
++				if (cacheN < 64) { cacheKey[cacheN] = key; cacheVal[cacheN] = (byte)best; cacheN++; }
++			}
++			*dst = (byte)idx;
++		}
++	}
++	_system->unlockScreen();
++}
++
+ void ScummEngine::drawDirtyScreenParts() {
+ 	// Update verbs
+ 	updateDirtyScreen(kVerbVirtScreen);
+@@ -548,6 +609,8 @@ void ScummEngine::drawDirtyScreenParts() {
+ 	} else {
+ 		updateDirtyScreen(kMainVirtScreen);
+ 	}
++
++	drawAtlantisTitle(); // FOA CHT title overlay (no-op outside the title room)
+ }
+ 
+ void ScummEngine_v6::drawDirtyScreenParts() {
 diff --git a/engines/scumm/input.cpp b/engines/scumm/input.cpp
 index ecef09cf..b9a4cf43 100644
 --- a/engines/scumm/input.cpp
@@ -142,10 +223,10 @@ index 2cee05ab..12879f1e 100644
  	cursor.o \
  	debugger.o \
 diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
-index ae7b4bb7..c1cd64ed 100644
+index ae7b4bb7..8abc7533 100644
 --- a/engines/scumm/scumm.h
 +++ b/engines/scumm/scumm.h
-@@ -1761,6 +1761,17 @@ public:
+@@ -1761,6 +1761,20 @@ public:
  
  	// Somewhat hackish stuff for 2 byte support (Chinese/Japanese/Korean)
  	bool _useCJKMode = false;
@@ -160,6 +241,9 @@ index ae7b4bb7..c1cd64ed 100644
 +	byte *_cht24Ptr = nullptr;
 +	int _cht24W = 0, _cht24H = 0;
 +	int _chtVerbYOffset = -2; // vertical nudge to centre 12px Big5 verbs in the panel cells
++	// FOA CHT: overlay a designed Chinese title (印第安納·瓊斯 / 亞特蘭提斯之謎) on the
++	// title room, colour-matched to the current palette so it sits with the logo.
++	void drawAtlantisTitle();
  	bool _useMultiFont = false;
  	int _numLoadedFont = 0;
  	int _2byteShadow = 0;
