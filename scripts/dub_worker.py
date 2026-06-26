@@ -8,17 +8,14 @@ Manifest line: offset <TAB> voc_name(e.g. v123.voc) <TAB> 中文文字
 import asyncio, os, sys
 import edge_tts
 
-VOICE = os.environ.get("DUB_VOICE", "zh-TW-YunJheNeural")
-RATE = os.environ.get("DUB_RATE", "-8%")
-PITCH = os.environ.get("DUB_PITCH", "-12Hz")
 CONC = int(os.environ.get("DUB_CONC", "6"))
 
 
-async def one(sem, mp3, text):
+async def one(sem, mp3, text, voice, rate, pitch):
     async with sem:
         for attempt in range(3):
             try:
-                c = edge_tts.Communicate(text, VOICE, rate=RATE, pitch=PITCH)
+                c = edge_tts.Communicate(text, voice, rate=rate, pitch=pitch)
                 await c.save(mp3)
                 return True
             except Exception as e:
@@ -31,17 +28,18 @@ async def one(sem, mp3, text):
 async def main():
     rows = []
     for line in open("/work/dub_manifest.tsv", encoding="utf-8"):
-        if "\t" not in line:
+        # voc <TAB> voice <TAB> rate <TAB> pitch <TAB> 中文
+        parts = line.rstrip("\n").split("\t", 4)
+        if len(parts) < 5:
             continue
-        off, voc, text = line.rstrip("\n").split("\t", 2)
-        mp3 = f"/work/voice/{voc[:-4]}.mp3"   # v123.voc -> v123.mp3
+        voc, voice, rate, pitch, text = parts
+        mp3 = f"/work/voice/{voc[:-4]}.mp3"
         if os.path.exists(mp3) and os.path.getsize(mp3) > 0:
             continue
-        rows.append((mp3, text))
-    print(f"dub_worker: {len(rows)} to generate (voice={VOICE} {RATE} {PITCH}, conc={CONC})")
+        rows.append((mp3, text, voice, rate, pitch))
+    print(f"dub_worker: {len(rows)} to generate (conc={CONC})")
     sem = asyncio.Semaphore(CONC)
-    done = 0
-    tasks = [one(sem, mp3, t) for mp3, t in rows]
+    tasks = [one(sem, mp3, t, v, r, p) for mp3, t, v, r, p in rows]
     for i, fut in enumerate(asyncio.as_completed(tasks), 1):
         await fut
         if i % 25 == 0:

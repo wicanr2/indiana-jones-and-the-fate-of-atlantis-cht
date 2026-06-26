@@ -32,29 +32,43 @@ def main():
         zh[norm(en)] = cn.strip()
 
     import hashlib
-    cn_voc = {}          # 中文 -> voc filename (dedup: one audio per unique line)
+    # actor -> (voice, rate, pitch). a2 = Sophia (confirmed). Default = Indy B.
+    INDY = ("zh-TW-YunJheNeural", "-8%", "-12Hz")     # 馬蓋仙味
+    SOPHIA = ("zh-TW-HsiaoChenNeural", "+0%", "+0Hz")  # 台灣女聲
+    def voice_for(actor):
+        return SOPHIA if actor == "a2" else INDY
+
+    voc_meta = {}        # voc filename -> (中文, voice, rate, pitch)
     offset_voc = []      # (offset, voc)
     for line in open(VOICE, encoding="utf-8"):
         if line.startswith("#") or "\t" not in line:
             continue
-        off, ln, key = line.rstrip("\n").split("\t", 2)
+        parts = line.rstrip("\n").split("\t", 3)
+        if len(parts) < 4:
+            continue
+        off, ln, actor, key = parts
         cn = zh.get(norm(key))
         if not cn:
             continue
-        if cn not in cn_voc:
-            h = hashlib.md5(cn.encode("utf-8")).hexdigest()[:10]
-            cn_voc[cn] = f"c{h}.voc"
-        offset_voc.append((int(off), cn_voc[cn]))
+        vp = voice_for(actor)
+        # Indy(default) keyed by text only (reuse existing VOCs); other voices
+        # keyed by text+voice so the same line in a different voice is distinct.
+        tag = cn if vp == INDY else (cn + "|" + vp[0])
+        h = hashlib.md5(tag.encode("utf-8")).hexdigest()[:10]
+        voc = f"c{h}.voc"
+        voc_meta.setdefault(voc, (cn, vp[0], vp[1], vp[2]))
+        offset_voc.append((int(off), voc))
 
     offset_voc.sort()
     with open(MANIFEST, "w", encoding="utf-8") as mf:
-        for cn, voc in sorted(cn_voc.items(), key=lambda kv: kv[1]):
-            mf.write(f"-\t{voc}\t{cn}\n")          # one TTS per unique line
+        for voc, (cn, v, r, p) in sorted(voc_meta.items()):
+            mf.write(f"{voc}\t{v}\t{r}\t{p}\t{cn}\n")
     with open(VTAB, "w", encoding="utf-8") as vt:
         vt.write("# offset(decimal)\tvoc(relative to game dir)\n")
         for off, voc in offset_voc:
             vt.write(f"{off}\tvoice/{voc}\n")
-    print(f"unique lines to TTS: {len(cn_voc)}  ->  {len(offset_voc)} offsets mapped")
+    nsoph = sum(1 for _, (_, v, _, _) in voc_meta.items() if v == SOPHIA[0])
+    print(f"unique audios: {len(voc_meta)} ({nsoph} Sophia female) -> {len(offset_voc)} offsets")
     print(f"manifest: {MANIFEST}   voice map: {VTAB}")
 
 

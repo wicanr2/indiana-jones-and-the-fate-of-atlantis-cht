@@ -39,6 +39,23 @@ def normalize_key(raw):
     return "".join(out).strip()
 
 
+def speaker(dec, i):
+    """Best-effort: scan back from the talkie header for the print opcode.
+    o5_printEgo(0xD8)=Indy; o5_print(0x14)=actor in next byte; 0x94=var-actor.
+    Returns 'EGO', 'aN', 'var', or '?'."""
+    lo = max(0, i - 28)
+    w = dec[lo:i]
+    for k in range(len(w) - 1, -1, -1):
+        op = w[k]
+        if op == 0xD8:
+            return "EGO"
+        if op == 0x14:
+            return "a%d" % (w[k + 1] if k + 1 < len(w) else -1)
+        if op == 0x94:
+            return "var"
+    return "?"
+
+
 def main():
     path = sys.argv[1] if len(sys.argv) > 1 else \
         "/home/anr2/indian_jones/atlantis/game/ATLANTIS.001"
@@ -62,12 +79,12 @@ def main():
                     raw.append(dec[j]); j += 1
                 key = normalize_key(bytes(raw))
                 if key and re.search(r"[A-Za-z]", key):
-                    seen.setdefault(off, (ln, key))
+                    seen.setdefault(off, (ln, speaker(dec, i), key))
                 i = j
                 continue
         i += 1
-    for off, (ln, key) in sorted(seen.items()):
-        print(f"{off}\t{ln}\t{key}")
+    for off, (ln, spk, key) in sorted(seen.items()):
+        print(f"{off}\t{ln}\t{spk}\t{key}")
     print(f"# {len(seen)} voiced lines", file=sys.stderr)
 
 

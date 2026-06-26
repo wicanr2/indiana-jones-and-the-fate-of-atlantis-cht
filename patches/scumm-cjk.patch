@@ -1,5 +1,5 @@
 diff --git a/engines/scumm/actor.cpp b/engines/scumm/actor.cpp
-index 7c48e492..4c8f7c87 100644
+index 7c48e492..36813e7d 100644
 --- a/engines/scumm/actor.cpp
 +++ b/engines/scumm/actor.cpp
 @@ -27,6 +27,7 @@
@@ -16,7 +16,7 @@ index 7c48e492..4c8f7c87 100644
  
 +	// Non-upstream: Fate of Atlantis CHT — translate spoken dialogue in place;
 +	// the existing 2-byte renderer + word-wrap draw the Big5 text. (Phase 3)
-+	if (_chtBig5)
++	if (_chtBig5 && _chtTextOn)
 +		CHT::translateInPlace(_charsetBuffer, sizeof(_charsetBuffer));
 +
  	// I have commented out this workaround, since it did cause another
@@ -90,6 +90,31 @@ index 81c14ae2..70d2aab7 100644
  		{
  			int base = 0;
  			byte low = idx % 256;
+diff --git a/engines/scumm/input.cpp b/engines/scumm/input.cpp
+index ecef09cf..b9a4cf43 100644
+--- a/engines/scumm/input.cpp
++++ b/engines/scumm/input.cpp
+@@ -957,6 +957,20 @@ void ScummEngine_v3::processKeyboard(Common::KeyState lastKeyHit) {
+ }
+ 
+ void ScummEngine::processKeyboard(Common::KeyState lastKeyHit) {
++	// --- Non-upstream: Fate of Atlantis CHT — F8 toggles Chinese text,
++	// F9 toggles Chinese voice. Consumed early (F8 overrides the original
++	// restart key; restart is still reachable from the menu). ---
++	if (_chtBig5) {
++		if (lastKeyHit.keycode == Common::KEYCODE_F8 && lastKeyHit.hasFlags(0)) {
++			_chtTextOn = !_chtTextOn;
++			return;
++		}
++		if (lastKeyHit.keycode == Common::KEYCODE_F9 && lastKeyHit.hasFlags(0)) {
++			_chtVoiceOn = !_chtVoiceOn;
++			return;
++		}
++	}
++
+ 	// Enable the following special keys conditionally:
+ 	bool restartKeyEnabled = (VAR_RESTART_KEY == 0xFF || VAR(VAR_RESTART_KEY) != 0);
+ 	bool pauseKeyEnabled = (VAR_PAUSE_KEY == 0xFF || VAR(VAR_PAUSE_KEY) != 0);
 diff --git a/engines/scumm/module.mk b/engines/scumm/module.mk
 index 2cee05ab..12879f1e 100644
 --- a/engines/scumm/module.mk
@@ -103,10 +128,10 @@ index 2cee05ab..12879f1e 100644
  	cursor.o \
  	debugger.o \
 diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
-index ae7b4bb7..0aa5da6d 100644
+index ae7b4bb7..5579e863 100644
 --- a/engines/scumm/scumm.h
 +++ b/engines/scumm/scumm.h
-@@ -1761,6 +1761,10 @@ public:
+@@ -1761,6 +1761,12 @@ public:
  
  	// Somewhat hackish stuff for 2 byte support (Chinese/Japanese/Korean)
  	bool _useCJKMode = false;
@@ -114,11 +139,13 @@ index ae7b4bb7..0aa5da6d 100644
 +	// When set, the ZH_TWN glyph path uses CHT::big5LinearIndex and drawString()
 +	// swaps translated UI text in place. See cjk_cht.{h,cpp}.
 +	bool _chtBig5 = false;
++	bool _chtTextOn = true;   // F8 toggles Chinese text on/off
++	bool _chtVoiceOn = true;  // F9 toggles Chinese voice on/off
  	bool _useMultiFont = false;
  	int _numLoadedFont = 0;
  	int _2byteShadow = 0;
 diff --git a/engines/scumm/sound.cpp b/engines/scumm/sound.cpp
-index bfb33823..ab52d3af 100644
+index bfb33823..99686731 100644
 --- a/engines/scumm/sound.cpp
 +++ b/engines/scumm/sound.cpp
 @@ -23,6 +23,8 @@
@@ -139,7 +166,7 @@ index bfb33823..ab52d3af 100644
 +	// (decimal offset <TAB> external VOC filename), play the Chinese VOC instead.
 +	// Drop an empty file "atlantis_voice_dump" in the game dir to log offsets
 +	// (CHTVOICE\t<offset>) so we can map a heard line to its number. Off otherwise.
-+	if (_vm->_game.id == GID_INDY4 && (mode & DIGI_SND_MODE_TALKIE)) {
++	if (_vm->_game.id == GID_INDY4 && _vm->_chtVoiceOn && (mode & DIGI_SND_MODE_TALKIE)) {
 +		static bool chtInit = false;
 +		static bool chtDump = false;
 +		static Common::HashMap<uint32, Common::String> chtMap;
@@ -192,7 +219,7 @@ index bfb33823..ab52d3af 100644
  		// COMI (full & demo), DIG (full)
  		_digiSndMode |= mode;
 diff --git a/engines/scumm/string.cpp b/engines/scumm/string.cpp
-index ebb998ec..ff8c9623 100644
+index ebb998ec..dbbdaee6 100644
 --- a/engines/scumm/string.cpp
 +++ b/engines/scumm/string.cpp
 @@ -27,6 +27,7 @@
@@ -209,7 +236,7 @@ index ebb998ec..ff8c9623 100644
  
 +	// Non-upstream: Fate of Atlantis CHT — swap matched English UI text for its
 +	// Big5 translation in place; the existing 2-byte renderer draws it. (Phase 3)
-+	if (_chtBig5)
++	if (_chtBig5 && _chtTextOn)
 +		CHT::translateInPlace(buf, sizeof(buf));
 +
  	if (_isRTL)
