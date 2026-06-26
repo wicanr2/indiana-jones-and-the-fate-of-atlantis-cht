@@ -189,10 +189,10 @@ index 00000000..03c46299
 +#endif
 diff --git a/engines/scumm/cjk_cht.cpp b/engines/scumm/cjk_cht.cpp
 new file mode 100644
-index 00000000..6c13029b
+index 00000000..0472dd26
 --- /dev/null
 +++ b/engines/scumm/cjk_cht.cpp
-@@ -0,0 +1,167 @@
+@@ -0,0 +1,203 @@
 +/* Indiana Jones and the Fate of Atlantis — Traditional Chinese (Big5) overlay.
 + * See cjk_cht.h. Non-upstream localisation helper. */
 +
@@ -202,9 +202,29 @@ index 00000000..6c13029b
 +#include "common/hashmap.h"
 +#include "common/hash-str.h"
 +#include "common/stream.h"
++#include "common/file.h"
++#include "common/textconsole.h"
 +
 +namespace Scumm {
 +namespace CHT {
++
++// Dev aid: if a file named "atlantis_dump_on" is on the search path (drop one in
++// the game dir), log every *untranslated* lookup key once via warning(), tagged
++// CHTMISS. Harvest the exact English strings the engine draws (grep the log) and
++// translate those — no guessing from the offline corpus. Off (zero cost) otherwise.
++// Uses only ScummVM-portable APIs (forbidden.h bans getenv/fopen/fprintf).
++static void dumpMiss(const Common::String &key) {
++	static int on = -1;
++	if (on < 0)
++		on = Common::File::exists("atlantis_dump_on") ? 1 : 0;
++	if (!on)
++		return;
++	static Common::HashMap<Common::String, bool> seen;
++	if (seen.contains(key))
++		return;
++	seen[key] = true;
++	warning("%s", (Common::String("CHTMISS\t") + key).c_str());
++}
 +
 +int big5LinearIndex(byte lead, byte trail) {
 +	if (lead < 0x81 || lead > 0xFE)
@@ -305,7 +325,9 @@ index 00000000..6c13029b
 +			if (!lastSpace) { k += ' '; lastSpace = true; }
 +			continue;
 +		}
-+		if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
++		// Any control byte (<=0x20), DEL (0x7F), or '^' (0x5E, used in the source
++		// text as a line-break/space marker) collapses to a single separator.
++		if (c <= 0x20 || c == 0x7F || c == 0x5E) {
 +			if (!lastSpace) { k += ' '; lastSpace = true; }
 +			i++;
 +			continue;
@@ -322,6 +344,16 @@ index 00000000..6c13029b
 +void translateInPlace(byte *buf, int cap) {
 +	if (!buf || !buf[0])
 +		return;
++
++	if (Common::File::exists("atlantis_dump_raw")) {
++		Common::String hex;
++		for (int i = 0; buf[i] && i < 80; i++) {
++			char b[4];
++			Common::sprintf_s(b, "%02x", buf[i]);
++			hex += b;
++		}
++		warning("%s", (Common::String("CHTRAW\t") + hex).c_str());
++	}
 +
 +	Common::String key = normalizeKey(buf);
 +	if (key.empty())
@@ -353,9 +385,13 @@ index 00000000..6c13029b
 +				memcpy(buf, out.c_str(), out.size());
 +				buf[out.size()] = 0;
 +			}
++			if (!objBig5)
++				dumpMiss(object);   // object name still untranslated — harvest it
 +			return;
 +		}
 +	}
++
++	dumpMiss(key);   // nothing matched — harvest for translation
 +}
 +
 +} // namespace CHT

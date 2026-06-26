@@ -17,8 +17,9 @@ SCUMM_NL = b"\xff\x01"
 
 
 def normalize_key(s):
-    # Match Scumm::CHT::normalizeKey: collapse whitespace runs to one space, trim.
-    return re.sub(r"\s+", " ", s).strip()
+    # Match Scumm::CHT::normalizeKey: control bytes (<=0x20), DEL, and '^' all
+    # collapse to a single space; then trim. Author keys as plain English.
+    return re.sub(r"[\x00-\x20\x5e\x7f]+", " ", s).strip()
 
 
 def main():
