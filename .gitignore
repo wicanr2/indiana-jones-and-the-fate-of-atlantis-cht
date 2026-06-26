@@ -35,3 +35,5 @@ __pycache__/
 
 # 點陣字型(可由 tools/build_cjk_font.py 重建)
 *.dcjk
+docs/攻略.md
+docs/*攻略*.md
