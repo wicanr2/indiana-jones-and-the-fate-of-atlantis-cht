@@ -1,0 +1,36 @@
+# 亞特蘭提斯之謎 繁體中文譯表(source,UTF-8)
+# 格式:英文原文 <TAB> 繁體中文。# 開頭為註解,空行略過。
+# 鍵 = 遊戲 convertMessageToString 後的「單行」顯示字串(多行/含控制碼的對白暫不放這)。
+# 由 tools/build_translation.py 編成 Big5 的 atlantis_zh.tab(放進 game/)。
+# 譯名依 CONTEXT.md:瓊斯 / 蘇菲亞 / 亞特蘭提斯 / 納粹。
+
+# ── 動詞列 ─────────────────────────────
+Give	給
+Pick up	拿起
+Use	使用
+Open	開
+Talk to	交談
+Push	推
+Close	關
+Look at	看
+Pull	拉
+Walk to	走向
+
+# ── 物件名(句子列目標)───────────────
+ticket taker	售票員
+taxi	計程車
+street light	街燈
+news stand	報攤
+theater	戲院
+door	門
+whip	皮鞭
+
+# ── 常見通用回應(單行)────────────────
+That doesn't work.	沒有用。
+I can't do that now!	我現在不能那樣做!
+I have it already.	我已經有了。
+It's too dark to read!	太暗了,看不清楚!
+It's too dark to see!	太暗了,看不見!
+Nothing here.	這裡什麼都沒有。
+Nothing there.	那裡什麼都沒有。
+It's my favorite piece of equipment.	這是我最愛的裝備。

@@ -23,7 +23,7 @@ index 7c48e492..4c8f7c87 100644
  	// bug (#11480). It is not okay to skip the stopTalk() calls here.
  	// Instead, I have added two checks from LOOM DOS EGA disasm (one
 diff --git a/engines/scumm/charset.cpp b/engines/scumm/charset.cpp
-index 81c14ae2..417f6d85 100644
+index 81c14ae2..70d2aab7 100644
 --- a/engines/scumm/charset.cpp
 +++ b/engines/scumm/charset.cpp
 @@ -21,6 +21,7 @@
@@ -34,7 +34,7 @@ index 81c14ae2..417f6d85 100644
  #include "scumm/file.h"
  #include "scumm/scumm.h"
  #include "scumm/macgui/macgui.h"
-@@ -66,6 +67,33 @@ void ScummEngine::loadCJKFont() {
+@@ -66,6 +67,39 @@ void ScummEngine::loadCJKFont() {
  		return;
  	}
  
@@ -59,6 +59,12 @@ index 81c14ae2..417f6d85 100644
 +				_useCJKMode = true;
 +				_textSurfaceMultiplier = 1;
 +				_newLineCharacter = 0;
++				// Load the English->Big5 dictionary (extends the built-in MVP table).
++				{
++					ScummFile tf(this);
++					if (openFile(tf, "atlantis_zh.tab"))
++						CHT::loadTable(&tf);
++				}
 +				return;
 +			}
 +			chf.close();
@@ -68,7 +74,7 @@ index 81c14ae2..417f6d85 100644
  	ScummFile fp(this);
  
  	if (_game.version <= 5 && _game.platform == Common::kPlatformFMTowns && _language == Common::JA_JPN) { // FM-TOWNS v3 / v5 Kanji
-@@ -264,6 +292,15 @@ byte *ScummEngine::get2byteCharPtr(int idx) {
+@@ -264,6 +298,15 @@ byte *ScummEngine::get2byteCharPtr(int idx) {
  
  		break;
  	case Common::ZH_TWN:
@@ -137,10 +143,10 @@ index ebb998ec..ff8c9623 100644
  
 diff --git a/engines/scumm/cjk_cht.h b/engines/scumm/cjk_cht.h
 new file mode 100644
-index 00000000..dae4130b
+index 00000000..03c46299
 --- /dev/null
 +++ b/engines/scumm/cjk_cht.h
-@@ -0,0 +1,31 @@
+@@ -0,0 +1,40 @@
 +/* Indiana Jones and the Fate of Atlantis — Traditional Chinese (Big5) overlay.
 + *
 + * Non-upstream localisation helper. The scumm engine already renders 2-byte CJK
@@ -154,8 +160,17 @@ index 00000000..dae4130b
 +
 +#include "common/scummsys.h"
 +
++namespace Common { class SeekableReadStream; }
++
 +namespace Scumm {
 +namespace CHT {
++
++// Load the English->Big5 dictionary from a `atlantis_zh.tab` data stream.
++// Format: one entry per line, `english<TAB>big5bytes`; blank lines and lines
++// starting with '#' are ignored. Replaces any previously loaded table. The
++// engine calls this once at font-load time; a missing file just means the
++// built-in MVP fallback table is used.
++void loadTable(Common::SeekableReadStream *s);
 +
 +// Big5 -> linear glyph index, identical to tools/build_cjk_font.py:
 +//   lead  0x81..0xFE                       (126 leads)
@@ -174,16 +189,19 @@ index 00000000..dae4130b
 +#endif
 diff --git a/engines/scumm/cjk_cht.cpp b/engines/scumm/cjk_cht.cpp
 new file mode 100644
-index 00000000..6f3b3c30
+index 00000000..842780d6
 --- /dev/null
 +++ b/engines/scumm/cjk_cht.cpp
-@@ -0,0 +1,105 @@
+@@ -0,0 +1,141 @@
 +/* Indiana Jones and the Fate of Atlantis — Traditional Chinese (Big5) overlay.
 + * See cjk_cht.h. Non-upstream localisation helper. */
 +
 +#include "scumm/cjk_cht.h"
 +#include "common/util.h"
 +#include "common/str.h"
++#include "common/hashmap.h"
++#include "common/hash-str.h"
++#include "common/stream.h"
 +
 +namespace Scumm {
 +namespace CHT {
@@ -201,11 +219,11 @@ index 00000000..6f3b3c30
 +	return (lead - 0x81) * 157 + to;
 +}
 +
-+// English -> Big5 dictionary. Verbs + objects + dialogue. Big5 byte sequences.
-+// Extend here (or later: load from a data file) as translation lands.
++// Built-in MVP fallback: the nine verbs + "Walk to", so the UI is Chinese even
++// before the external dictionary (atlantis_zh.tab) is shipped. The data file,
++// when present, is loaded on top of this and overrides/extends it.
 +struct Entry { const char *en; const char *big5; };
-+static const Entry kTable[] = {
-+	// --- verbs (also used as sentence-line prefixes, see kVerbs) ---
++static const Entry kBuiltin[] = {
 +	{ "Give",    "\xb5\xb9" },          // 給
 +	{ "Pick up", "\xae\xb3\xb0\x5f" },  // 拿起
 +	{ "Use",     "\xa8\xcf\xa5\xce" },  // 使用
@@ -216,10 +234,6 @@ index 00000000..6f3b3c30
 +	{ "Look at", "\xac\xdd" },          // 看
 +	{ "Pull",    "\xa9\xd4" },          // 拉
 +	{ "Walk to", "\xa8\xab\xa6\x56" },  // 走向
-+	// --- objects / nouns (sentence-line targets) ---
-+	{ "ticket taker", "\xb0\xe2\xb2\xbc\xad\xfb" }, // 售票員
-+	{ "taxi",         "\xad\x70\xb5\x7b\xa8\xae" }, // 計程車
-+	{ "street light", "\xb5\xf3\xbf\x4f" },         // 街燈
 +};
 +
 +// Verb keys eligible to act as "<verb> <object>" sentence-line prefixes.
@@ -227,11 +241,48 @@ index 00000000..6f3b3c30
 +	"Walk to", "Pick up", "Look at", "Talk to", "Give", "Use", "Open", "Close", "Push", "Pull"
 +};
 +
++typedef Common::HashMap<Common::String, Common::String> Dict;
++
++static Dict &dict() {
++	static Dict g_dict;
++	static bool g_init = false;
++	if (!g_init) {
++		for (uint i = 0; i < ARRAYSIZE(kBuiltin); i++)
++			g_dict[kBuiltin[i].en] = kBuiltin[i].big5;
++		g_init = true;
++	}
++	return g_dict;
++}
++
++void loadTable(Common::SeekableReadStream *s) {
++	if (!s)
++		return;
++	Dict &d = dict();
++	int n = 0;
++	while (!s->eos()) {
++		Common::String line = s->readLine();
++		if (line.empty() || line[0] == '#')
++			continue;
++		const char *tab = strchr(line.c_str(), '\t');
++		if (!tab)
++			continue;
++		Common::String en(line.c_str(), tab - line.c_str());
++		Common::String zh(tab + 1);
++		en.trim();
++		// keep zh as-is (Big5 bytes); only strip a trailing CR if present
++		while (!zh.empty() && (zh.lastChar() == '\r' || zh.lastChar() == '\n'))
++			zh.deleteLastChar();
++		if (!en.empty() && !zh.empty())
++			d[en] = zh;
++		n++;
++	}
++	(void)n;
++}
++
 +static const char *exactLookup(const Common::String &key) {
-+	for (uint i = 0; i < ARRAYSIZE(kTable); i++)
-+		if (key == kTable[i].en)
-+			return kTable[i].big5;
-+	return nullptr;
++	Dict &d = dict();
++	Dict::const_iterator it = d.find(key);
++	return (it != d.end()) ? it->_value.c_str() : nullptr;
 +}
 +
 +void translateInPlace(byte *buf, int cap) {
@@ -250,16 +301,13 @@ index 00000000..6f3b3c30
 +		return;
 +	Common::String key(s + start, end - start);
 +
-+	auto emit = [&](const Common::String &out) {
-+		if ((int)out.size() + 1 > cap)
-+			return;
-+		memcpy(buf, out.c_str(), out.size());
-+		buf[out.size()] = 0;
-+	};
-+
 +	// 1) Whole-string match (verbs, full object names, dialogue lines).
 +	if (const char *hit = exactLookup(key)) {
-+		emit(Common::String(hit));
++		Common::String out(hit);
++		if ((int)out.size() + 1 <= cap) {
++			memcpy(buf, out.c_str(), out.size());
++			buf[out.size()] = 0;
++		}
 +		return;
 +	}
 +
@@ -275,7 +323,10 @@ index 00000000..6f3b3c30
 +			Common::String out(verbBig5 ? verbBig5 : kVerbs[i]);
 +			out += ' ';
 +			out += objBig5 ? objBig5 : object;
-+			emit(out);
++			if ((int)out.size() + 1 <= cap) {
++				memcpy(buf, out.c_str(), out.size());
++				buf[out.size()] = 0;
++			}
 +			return;
 +		}
 +	}
