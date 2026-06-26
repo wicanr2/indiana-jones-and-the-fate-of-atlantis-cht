@@ -37,3 +37,7 @@ __pycache__/
 *.dcjk
 docs/攻略.md
 docs/*攻略*.md
+
+# 生成的測試語音
+voice_test/
+*.voc

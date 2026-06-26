@@ -117,6 +117,80 @@ index ae7b4bb7..0aa5da6d 100644
  	bool _useMultiFont = false;
  	int _numLoadedFont = 0;
  	int _2byteShadow = 0;
+diff --git a/engines/scumm/sound.cpp b/engines/scumm/sound.cpp
+index bfb33823..ab52d3af 100644
+--- a/engines/scumm/sound.cpp
++++ b/engines/scumm/sound.cpp
+@@ -23,6 +23,8 @@
+ #include "common/util.h"
+ #include "common/ptr.h"
+ #include "common/substream.h"
++#include "common/file.h"
++#include "common/hashmap.h"
+ 
+ #include "scumm/actor.h"
+ #include "scumm/file.h"
+@@ -480,6 +482,60 @@ void Sound::startTalkSound(uint32 offset, uint32 length, int mode, Audio::SoundH
+ 	Common::ScopedPtr<ScummFile> file;
+ 	uint32 origOffset = offset;
+ 
++	// --- Non-upstream: Fate of Atlantis Chinese voice redirect ---------------
++	// For each talkie line, if its MONSTER.SOU offset is in atlantis_voice.tab
++	// (decimal offset <TAB> external VOC filename), play the Chinese VOC instead.
++	// Drop an empty file "atlantis_voice_dump" in the game dir to log offsets
++	// (CHTVOICE\t<offset>) so we can map a heard line to its number. Off otherwise.
++	if (_vm->_game.id == GID_INDY4 && (mode & DIGI_SND_MODE_TALKIE)) {
++		static bool chtInit = false;
++		static bool chtDump = false;
++		static Common::HashMap<uint32, Common::String> chtMap;
++		if (!chtInit) {
++			chtInit = true;
++			chtDump = Common::File::exists("atlantis_voice_dump");
++			ScummFile *mf = _vm->instantiateScummFile(false);
++			if (mf && _vm->openFile(*mf, Common::Path("atlantis_voice.tab"))) {
++				while (!mf->eos()) {
++					Common::String line = mf->readLine();
++					uint32 tab = line.findFirstOf('\t');
++					if (line.empty() || line[0] == '#' || tab == Common::String::npos)
++						continue;
++					uint32 off = (uint32)atol(line.c_str());
++					Common::String fn(line.c_str() + tab + 1);
++					fn.trim();
++					if (!fn.empty())
++						chtMap[off] = fn;
++				}
++			}
++			delete mf;
++		}
++		if (chtDump)
++			warning("%s", Common::String::format("CHTVOICE\t%u", (unsigned)offset).c_str());
++		Common::HashMap<uint32, Common::String>::iterator it = chtMap.find(offset);
++		if (it != chtMap.end()) {
++			ScummFile *vf = _vm->instantiateScummFile(false);
++			if (vf && _vm->openFile(*vf, Common::Path(it->_value))) {
++				Audio::SeekableAudioStream *st =
++					Audio::makeVOCStream(vf, Audio::FLAG_UNSIGNED, DisposeAfterUse::YES);
++				if (st) {
++					Audio::SoundHandle *h = handle ? handle : _talkChannelHandle;
++					_mixer->stopHandle(*h);
++					_mixer->playStream(Audio::Mixer::kSpeechSoundType, h, st);
++					_digiSndMode |= mode;
++					resetSpeechTimer();
++					_mouthSyncMode = false;
++					warning("%s", Common::String::format("CHTVOICE-PLAY\t%u\t%s",
++						(unsigned)offset, it->_value.c_str()).c_str());
++					return;
++				}
++			} else {
++				delete vf;
++			}
++		}
++	}
++	// -------------------------------------------------------------------------
++
+ 	if (_vm->_game.id == GID_CMI || (_vm->_game.id == GID_DIG && !(_vm->_game.features & GF_DEMO))) {
+ 		// COMI (full & demo), DIG (full)
+ 		_digiSndMode |= mode;
 diff --git a/engines/scumm/string.cpp b/engines/scumm/string.cpp
 index ebb998ec..ff8c9623 100644
 --- a/engines/scumm/string.cpp
