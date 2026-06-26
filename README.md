@@ -222,7 +222,14 @@ scumm:atlantis   Indiana Jones and the Fate of Atlantis (CD/DOS/English)
 <a name="roadmap"></a>
 ## 後續藍圖
 
-完整六階段(補索引 → 抽字 → 烘字型 → 引擎 patch → 翻譯 → 打包驗證)見 **[PLAN.md](PLAN.md)**。字幕(4760 條)與中文配音(5552 點)都已收尾;眼前剩下的是把成果**打包成自帶字型 / 譯表 / 配音、開箱即玩的版本**,以及定稿 [CONTEXT.md](CONTEXT.md) 裡幾個待確認的譯名(Trottier / Sternhart 的身分與敬語、orichalcum 譯「山銅」還是「奧利哈剛」)。
+完整六階段(補索引 → 抽字 → 烘字型 → 引擎 patch → 翻譯 → 打包驗證)見 **[PLAN.md](PLAN.md)**。字幕(4760 條)、中文配音(5552 點)、標題中文化都已收尾。
+
+**打包**也上線了,分兩條路:
+
+- **公開三平台**(Windows / Linux AppImage / macOS):`.github/workflows/build.yml`。每個 job **自編 SDL2**、clone 對應 commit 的 ScummVM、套 `scumm-cjk.patch`、編 scumm 引擎,連同**輕量中文資產**(字型 / 譯表 / 標題)打成 slim 包——**玩家自備合法持有的遊戲資料**。原版 `ATLANTIS.001` / `MONSTER.SOU` 是 LucasArts 版權內容,**不入公開 CI**。
+- **本機完整包**:`scripts/package_linux.sh full` 把引擎 + 相依 + 中文資產 + **中文配音(272 MB)+ 你自己的遊戲資料**組成「開箱即玩」目錄到 `dist-all/`(個人用,不公開散布)。Linux x86_64 已實測可跑。
+
+剩下的是定稿 [CONTEXT.md](CONTEXT.md) 裡幾個待確認的譯名(Trottier / Sternhart 的身分與敬語、orichalcum 譯「山銅」還是「奧利哈剛」),以及在 GitHub runner 上跑通 Windows / macOS 兩個 job(本機只驗證了 Linux)。
 
 ---
 

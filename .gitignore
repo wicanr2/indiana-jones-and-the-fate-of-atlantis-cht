@@ -41,3 +41,9 @@ docs/*攻略*.md
 # 生成的測試語音
 voice_test/
 *.voc
+
+# 打包輸出(含版權遊戲資料/語音,不入 git)
+dist-all/
+
+# 輕量字型資產納入追蹤(供 CI 打包,衍生自開源 CJK 字型)
+!fonts/*.dcjk
