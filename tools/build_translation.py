@@ -10,16 +10,33 @@ and skipped rather than silently corrupting the table.
 """
 import sys, argparse, os, re
 
-# SCUMM newline control code (0xFF 0x01). In the Chinese value, author line
-# breaks as a literal "\n" (backslash-n); they become this in the .tab so the
-# engine wraps long dialogue itself (CJK has no spaces to wrap on).
+# SCUMM newline control code (0xFF 0x01). CJK has no spaces, so we auto-insert
+# these breaks: dialogue renders in the 24x24 font, ~11 CJK chars fit per line at
+# the 320px game width. (CJK breaks anywhere, so word boundaries don't matter.)
 SCUMM_NL = b"\xff\x01"
+WRAP = int(os.environ.get("CHT_WRAP", "11"))  # max CJK chars per dialogue line
 
 
 def normalize_key(s):
     # Match Scumm::CHT::normalizeKey: control bytes (<=0x20), DEL, and '^' all
     # collapse to a single space; then trim. Author keys as plain English.
     return re.sub(r"[\x00-\x20\x5e\x7f]+", " ", s).strip()
+
+
+def wrap_cjk(s):
+    """Yield Big5-encoded lines, auto-wrapping to ~WRAP CJK chars. Respects any
+    explicit literal '\\n' the author put in. ASCII counts as half a CJK width."""
+    out_lines = []
+    for para in s.split("\\n"):
+        cur, width = [], 0.0
+        for ch in para:
+            w = 1.0 if ord(ch) > 0x7F else 0.5
+            if width + w > WRAP and cur:
+                out_lines.append("".join(cur)); cur, width = [], 0.0
+            cur.append(ch); width += w
+        if cur:
+            out_lines.append("".join(cur))
+    return out_lines
 
 
 def main():
@@ -41,8 +58,8 @@ def main():
             en, zh = normalize_key(en), zh.strip()
             if not en or not zh:
                 continue
-            # author line breaks in the Chinese as literal "\n"
-            segments = zh.split("\\n")
+            # auto-wrap to the 24px dialogue width (respects explicit \n too)
+            segments = wrap_cjk(zh)
             try:
                 big5 = SCUMM_NL.join(seg.encode("big5") for seg in segments)
             except UnicodeEncodeError as e:

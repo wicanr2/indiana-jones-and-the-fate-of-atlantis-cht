@@ -23,7 +23,7 @@ index 7c48e492..36813e7d 100644
  	// bug (#11480). It is not okay to skip the stopTalk() calls here.
  	// Instead, I have added two checks from LOOM DOS EGA disasm (one
 diff --git a/engines/scumm/charset.cpp b/engines/scumm/charset.cpp
-index 81c14ae2..70d2aab7 100644
+index 81c14ae2..e079465d 100644
 --- a/engines/scumm/charset.cpp
 +++ b/engines/scumm/charset.cpp
 @@ -21,6 +21,7 @@
@@ -34,7 +34,7 @@ index 81c14ae2..70d2aab7 100644
  #include "scumm/file.h"
  #include "scumm/scumm.h"
  #include "scumm/macgui/macgui.h"
-@@ -66,6 +67,39 @@ void ScummEngine::loadCJKFont() {
+@@ -66,6 +67,53 @@ void ScummEngine::loadCJKFont() {
  		return;
  	}
  
@@ -65,6 +65,20 @@ index 81c14ae2..70d2aab7 100644
 +					if (openFile(tf, "atlantis_zh.tab"))
 +						CHT::loadTable(&tf);
 +				}
++				// Optional 24x24 font for dialogue (displayDialog swaps to it).
++				{
++					ScummFile bf(this);
++					byte h2[15];
++					if (openFile(bf, "atlantis_zh24.dcjk") && bf.read(h2, 15) == 15 &&
++						h2[0] == 'D' && h2[1] == 'C' && h2[2] == 'J' && h2[3] == 'K') {
++						_cht24W = h2[5];
++						_cht24H = h2[6];
++						int bpr2 = h2[7];
++						uint32 nc2 = READ_LE_UINT32(h2 + 11);
++						_cht24Ptr = new byte[bpr2 * _cht24H * nc2];
++						bf.read(_cht24Ptr, bpr2 * _cht24H * nc2);
++					}
++				}
 +				return;
 +			}
 +			chf.close();
@@ -74,7 +88,7 @@ index 81c14ae2..70d2aab7 100644
  	ScummFile fp(this);
  
  	if (_game.version <= 5 && _game.platform == Common::kPlatformFMTowns && _language == Common::JA_JPN) { // FM-TOWNS v3 / v5 Kanji
-@@ -264,6 +298,15 @@ byte *ScummEngine::get2byteCharPtr(int idx) {
+@@ -264,6 +312,15 @@ byte *ScummEngine::get2byteCharPtr(int idx) {
  
  		break;
  	case Common::ZH_TWN:
@@ -128,10 +142,10 @@ index 2cee05ab..12879f1e 100644
  	cursor.o \
  	debugger.o \
 diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
-index ae7b4bb7..5579e863 100644
+index ae7b4bb7..1d1204a5 100644
 --- a/engines/scumm/scumm.h
 +++ b/engines/scumm/scumm.h
-@@ -1761,6 +1761,12 @@ public:
+@@ -1761,6 +1761,16 @@ public:
  
  	// Somewhat hackish stuff for 2 byte support (Chinese/Japanese/Korean)
  	bool _useCJKMode = false;
@@ -141,6 +155,10 @@ index ae7b4bb7..5579e863 100644
 +	bool _chtBig5 = false;
 +	bool _chtTextOn = true;   // F8 toggles Chinese text on/off
 +	bool _chtVoiceOn = true;  // F9 toggles Chinese voice on/off
++	// Optional larger font (24x24) used only for actor dialogue (displayDialog),
++	// while the verb UI keeps the 12x12 font. See cjk_cht / displayDialog guard.
++	byte *_cht24Ptr = nullptr;
++	int _cht24W = 0, _cht24H = 0;
  	bool _useMultiFont = false;
  	int _numLoadedFont = 0;
  	int _2byteShadow = 0;
@@ -219,7 +237,7 @@ index bfb33823..99686731 100644
  		// COMI (full & demo), DIG (full)
  		_digiSndMode |= mode;
 diff --git a/engines/scumm/string.cpp b/engines/scumm/string.cpp
-index ebb998ec..dbbdaee6 100644
+index ebb998ec..6e03f84f 100644
 --- a/engines/scumm/string.cpp
 +++ b/engines/scumm/string.cpp
 @@ -27,6 +27,7 @@
@@ -230,7 +248,40 @@ index ebb998ec..dbbdaee6 100644
  #include "scumm/dialogs.h"
  #include "scumm/file.h"
  #include "scumm/imuse_digi/dimuse_engine.h"
-@@ -1365,6 +1366,11 @@ void ScummEngine::drawString(int a, const byte *msg, Common::TextToSpeechManager
+@@ -1030,6 +1031,23 @@ void ScummEngine_v2::drawSentence() {
+ 	drawString(2, (byte *)string);
+ }
+ 
++// Non-upstream: for Fate of Atlantis CHT, swap the 2-byte font to the larger
++// 24x24 dialogue font for the duration of displayDialog (auto-restored on any
++// return), so spoken text is bigger while the verb UI keeps its 12x12 font.
++struct ChtDialogFont {
++	ScummEngine *_vm; byte *_p; int _w, _h; bool _on;
++	ChtDialogFont(ScummEngine *vm) : _vm(vm), _on(false) {
++		if (vm->_chtBig5 && vm->_chtTextOn && vm->_cht24Ptr) {
++			_p = vm->_2byteFontPtr; _w = vm->_2byteWidth; _h = vm->_2byteHeight;
++			vm->_2byteFontPtr = vm->_cht24Ptr; vm->_2byteWidth = vm->_cht24W; vm->_2byteHeight = vm->_cht24H;
++			_on = true;
++		}
++	}
++	~ChtDialogFont() {
++		if (_on) { _vm->_2byteFontPtr = _p; _vm->_2byteWidth = _w; _vm->_2byteHeight = _h; }
++	}
++};
++
+ void ScummEngine::displayDialog() {
+ 	Actor *a;
+ 	if (_game.heversion >= 60 && _haveMsg == 3) {
+@@ -1040,6 +1058,8 @@ void ScummEngine::displayDialog() {
+ 	if (!_haveMsg)
+ 		return;
+ 
++	ChtDialogFont _chtDlgFont(this);   // 24x24 dialogue font (auto-restore)
++
+ 	_force2ByteCharHeight = false;
+ 
+ 	if (_game.version >= 4 && _game.version <= 6) {
+@@ -1365,6 +1385,11 @@ void ScummEngine::drawString(int a, const byte *msg, Common::TextToSpeechManager
  
  	convertMessageToString(msg, buf, sizeof(buf));
  
