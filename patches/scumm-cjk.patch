@@ -142,10 +142,10 @@ index 2cee05ab..12879f1e 100644
  	cursor.o \
  	debugger.o \
 diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
-index ae7b4bb7..1d1204a5 100644
+index ae7b4bb7..c1cd64ed 100644
 --- a/engines/scumm/scumm.h
 +++ b/engines/scumm/scumm.h
-@@ -1761,6 +1761,16 @@ public:
+@@ -1761,6 +1761,17 @@ public:
  
  	// Somewhat hackish stuff for 2 byte support (Chinese/Japanese/Korean)
  	bool _useCJKMode = false;
@@ -159,6 +159,7 @@ index ae7b4bb7..1d1204a5 100644
 +	// while the verb UI keeps the 12x12 font. See cjk_cht / displayDialog guard.
 +	byte *_cht24Ptr = nullptr;
 +	int _cht24W = 0, _cht24H = 0;
++	int _chtVerbYOffset = -2; // vertical nudge to centre 12px Big5 verbs in the panel cells
  	bool _useMultiFont = false;
  	int _numLoadedFont = 0;
  	int _2byteShadow = 0;
@@ -292,6 +293,22 @@ index ebb998ec..6e03f84f 100644
 +
  	if (_isRTL)
  		fakeBidiString(buf, false, sizeof(buf));
+ 
+diff --git a/engines/scumm/verbs.cpp b/engines/scumm/verbs.cpp
+index 1637dd33..7a681f4f 100644
+--- a/engines/scumm/verbs.cpp
++++ b/engines/scumm/verbs.cpp
+@@ -1144,6 +1144,11 @@ void ScummEngine::drawVerb(int verb, int mode, Common::TextToSpeechManager::Acti
+ 		_string[4].charset = vs->charset_nr;
+ 		_string[4].xpos = isRtl ? vs->origLeft : vs->curRect.left + pixelXOffset;
+ 		_string[4].ypos = vs->curRect.top + pixelYOffset;
++		// Non-upstream (FOA CHT): the 12px Big5 verb glyphs are taller than the
++		// original ~8px English verb font, so drawn at the box top they droop past
++		// the verb-panel divider line. Lift them to vertically centre in the cell.
++		if (_chtBig5)
++			_string[4].ypos += _chtVerbYOffset;
+ 		_string[4].right = _screenWidth - 1 + pixelXOffset;
+ 		_string[4].center = vs->center;
  
 diff --git a/engines/scumm/cjk_cht.h b/engines/scumm/cjk_cht.h
 new file mode 100644
