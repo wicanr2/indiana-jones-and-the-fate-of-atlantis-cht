@@ -40,14 +40,15 @@ jobs:
       - name: configure + build (universal, scumm only, self SDL2)
         run: |
           cd sv
+          # ScummVM configure has no --extra-*flags; pass arch via env (it picks up CXX/LDFLAGS)
+          ARCH="-arch x86_64 -arch arm64 -mmacosx-version-min=10.13"
           PATH="$GITHUB_WORKSPACE/sdl2/bin:$PATH" \
+          CXXFLAGS="$ARCH" CFLAGS="$ARCH" LDFLAGS="$ARCH" \
           ./configure --disable-all-engines --enable-engine=scumm \
             --with-sdl-prefix="$GITHUB_WORKSPACE/sdl2" --enable-release \
             --disable-mad --disable-vorbis --disable-flac --disable-fluidsynth --disable-tremor \
             --disable-faad --disable-mpeg2 --disable-a52 --disable-theoradec --disable-vpx \
-            --disable-png --disable-jpeg --disable-gif --disable-freetype2 --disable-libcurl \
-            --extra-cflags="-arch x86_64 -arch arm64 -mmacosx-version-min=10.13" \
-            --extra-ldflags="-arch x86_64 -arch arm64 -mmacosx-version-min=10.13"
+            --disable-png --disable-jpeg --disable-gif --disable-freetype2 --disable-libcurl
           make -j"$(sysctl -n hw.ncpu)"
           lipo -info scummvm || file scummvm
       - name: build CHT text table + stage engine .app

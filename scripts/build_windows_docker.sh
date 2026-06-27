@@ -50,10 +50,26 @@ export SDL2_CONFIG="$PFX/bin/sdl2-config"
 echo "configured."
 make -j"$(nproc)" >/tmp/svm.log 2>&1 || { echo "--- make FAIL ---"; tail -30 /tmp/svm.log; exit 1; }
 ls -la "$SV"/scummvm.exe && echo "BUILD OK: scummvm.exe"
-# stage exe + the 3 mingw runtime DLLs (SDL2 is static-linked)
+# stage exe + EVERY non-system DLL it needs (objdump BFS over the import tree).
+# This build static-links SDL2/zlib/libstdc++/libgcc/winpthread, so the import
+# table is all-Windows-system and the walk bundles 0 DLLs (exe is self-contained);
+# the walk still future-proofs against a build that links something dynamically.
 mkdir -p /work/build-win/out
 cp "$SV"/scummvm.exe /work/build-win/out/
-for d in libgcc_s_seh-1 libstdc++-6 libwinpthread-1; do
-  f=$(find /usr/lib/gcc/$H /usr/$H -name "$d.dll" 2>/dev/null | head -1); [ -n "$f" ] && cp "$f" /work/build-win/out/ || true
+OBJDUMP=$H-objdump
+SEARCH="/usr/lib/gcc/$H/*-win32 /usr/lib/gcc/$H /usr/$H/lib /usr/$H/bin $PFX/bin $PFX/lib"
+SYS='^(kernel32|user32|gdi32|gdiplus|winmm|ole32|oleaut32|shell32|shlwapi|advapi32|ws2_32|wsock32|imm32|msvcrt|version|setupapi|winspool\.drv|comctl32|comdlg32|dwmapi|uxtheme|hid|ntdll|rpcrt4|crypt32|wininet|iphlpapi|dbghelp|d3d9|d3d11|dxgi|dinput8|opengl32|glu32|avicap32|mscoree|powrprof|secur32|userenv|netapi32|cfgmgr32|bcrypt|api-ms-)'
+declare -A seen; queue="scummvm.exe"
+while [ -n "$queue" ]; do
+  cur=$(printf '%s' "$queue" | head -1); queue=$(printf '%s' "$queue" | tail -n +2)
+  curpath=$(ls /work/build-win/out/$cur 2>/dev/null || find $SEARCH -maxdepth 1 -iname "$cur" 2>/dev/null | head -1)
+  [ -z "$curpath" ] && continue
+  for dll in $($OBJDUMP -p "$curpath" 2>/dev/null | awk "/DLL Name/{print tolower(\$3)}" | sort -u); do
+    [ -n "${seen[$dll]:-}" ] && continue; seen[$dll]=1
+    echo "$dll" | grep -qiE "$SYS" && continue
+    f=$(find $SEARCH -maxdepth 1 -iname "$dll" 2>/dev/null | head -1)
+    [ -n "$f" ] && cp -n "$f" /work/build-win/out/ && echo "  bundle DLL: $dll" && queue=$(printf '%s\n%s' "$queue" "$dll")
+  done
 done
+echo "non-system DLLs bundled: $(ls /work/build-win/out/*.dll 2>/dev/null | wc -l)  (0 = fully static, self-contained)"
 ls -la /work/build-win/out/
