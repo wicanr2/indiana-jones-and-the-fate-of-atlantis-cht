@@ -118,10 +118,10 @@ index 81c14ae2..fcecc8f8 100644
  			byte low = idx % 256;
 diff --git a/engines/scumm/cjk_cht.cpp b/engines/scumm/cjk_cht.cpp
 new file mode 100644
-index 00000000..0472dd26
+index 00000000..1ccaa386
 --- /dev/null
 +++ b/engines/scumm/cjk_cht.cpp
-@@ -0,0 +1,203 @@
+@@ -0,0 +1,230 @@
 +/* Indiana Jones and the Fate of Atlantis — Traditional Chinese (Big5) overlay.
 + * See cjk_cht.h. Non-upstream localisation helper. */
 +
@@ -234,6 +234,40 @@ index 00000000..0472dd26
 +	return (it != d.end()) ? it->_value.c_str() : nullptr;
 +}
 +
++// Length in bytes of the leading run of SCUMM control sequences (everything
++// before the first visible character). A talkie speech string begins with the
++// digital-voice trigger — four `0xFF 0x0A xx xx` segments (see case 10 in
++// handleNextCharsetCode, which parses digiTalkieOffset/Length and starts the
++// voice). When we swap the visible text for its Big5 translation we MUST keep
++// this prefix intact, otherwise the voice (both the Chinese .voc redirect and
++// the original English VCTL) never fires for translated lines — which made the
++// voice appear coupled to the subtitle-language toggle (F8). Same per-code
++// lengths as normalizeKey().
++static int controlPrefixLen(const byte *buf) {
++	int i = 0;
++	while (buf[i] == 0xFF) {
++		byte code = buf[i + 1];
++		if (code == 0x04 || code == 0x06 || code == 0x07 ||
++			code == 0x09 || code == 0x0A || code == 0x0C || code == 0x0E)
++			i += 4;          // control byte + 2 arg bytes
++		else
++			i += 2;          // bare control
++	}
++	return i;
++}
++
++// Replace the visible text of `buf` with `out` (Big5) while preserving any
++// leading control-code prefix (e.g. the talkie voice trigger). Returns true if
++// it fit within `cap`.
++static bool writeTranslated(byte *buf, int cap, const Common::String &out) {
++	int pfx = controlPrefixLen(buf);
++	if (pfx + (int)out.size() + 1 > cap)
++		return false;
++	memcpy(buf + pfx, out.c_str(), out.size());
++	buf[pfx + out.size()] = 0;
++	return true;
++}
++
 +// Canonical lookup key: drop SCUMM control sequences (0xFF + code [+ 2 args]),
 +// collapse whitespace runs to one space, trim. Must match the exact same
 +// normalisation done by tools/build_translation.py so multi-line dialogue
@@ -290,11 +324,7 @@ index 00000000..0472dd26
 +
 +	// 1) Whole-string match (verbs, full object names, dialogue lines).
 +	if (const char *hit = exactLookup(key)) {
-+		Common::String out(hit);
-+		if ((int)out.size() + 1 <= cap) {
-+			memcpy(buf, out.c_str(), out.size());
-+			buf[out.size()] = 0;
-+		}
++		writeTranslated(buf, cap, Common::String(hit));
 +		return;
 +	}
 +
@@ -310,10 +340,7 @@ index 00000000..0472dd26
 +			Common::String out(verbBig5 ? verbBig5 : kVerbs[i]);
 +			out += ' ';
 +			out += objBig5 ? objBig5 : object;
-+			if ((int)out.size() + 1 <= cap) {
-+				memcpy(buf, out.c_str(), out.size());
-+				buf[out.size()] = 0;
-+			}
++			writeTranslated(buf, cap, out);
 +			if (!objBig5)
 +				dumpMiss(object);   // object name still untranslated — harvest it
 +			return;
