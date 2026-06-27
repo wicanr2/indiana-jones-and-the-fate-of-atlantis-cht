@@ -74,3 +74,50 @@ cp "$APPDIR/indyatlantis-cht.png" "$APPDIR/.DirIcon" 2>/dev/null || true
 ARCH=x86_64 "$TOOL" --appimage-extract-and-run "$APPDIR" "$OUT" 2>&1 | tail -3
 rm -rf "$APPDIR"
 ls -lh "$OUT" 2>/dev/null && echo "AppImage ($MODE) -> $OUT" || { echo "AppImage build FAILED"; exit 1; }
+
+# 使用說明.txt(放在 .AppImage 旁;AppImage 是單檔,說明只能擺旁邊)
+# 檔名帶 mode,讓 full 與 slim 各有對應說明、不互相覆蓋。
+DOC="dist-all/linux/使用說明${SUF}.txt"
+BASE="$(basename "$OUT")"
+cat > "$DOC" <<TXT
+印第安納瓊斯:亞特蘭提斯之謎  繁體中文版(Linux x86_64)
+========================================================
+
+這是什麼
+--------
+LucasArts 1992 年經典冒險遊戲《Indiana Jones and the Fate of Atlantis》
+的繁體中文化版本,以 ScummVM 引擎執行,打包成單檔 AppImage。
+
+怎麼玩
+------
+1. 給執行權限(只需一次):
+       chmod +x $BASE
+2. 直接執行:
+       ./$BASE
+TXT
+if [ "$MODE" = full ]; then
+cat >> "$DOC" <<TXT
+   本(FULL)版已內嵌遊戲資料 + 中文語音,直接跑就能玩。
+
+備註:本包含原版遊戲版權資料與中文配音,僅供個人保存使用,請勿散布。
+TXT
+else
+cat >> "$DOC" <<TXT
+   slim 版「不含」原版遊戲資料。把你合法持有的 ATLANTIS.000 / ATLANTIS.001 /
+   MONSTER.SOU 放在 .AppImage 旁邊,或當參數傳入:
+       ./$BASE /path/to/遊戲資料夾
+   (來源:Steam / GOG 安裝目錄,或原版光碟。)
+TXT
+fi
+cat >> "$DOC" <<'TXT'
+
+遊戲中常用按鍵
+--------------
+‧ F5  叫出選單(存檔 / 讀檔 / 設定)
+‧ F8  切換字幕語言    ‧ F9  切換語音
+‧ Alt+Enter  全螢幕 / 視窗切換
+
+存檔放在 ~/.local/share/scummvm/ 等 ScummVM 預設目錄,不在 AppImage 內。
+若提示缺少 FUSE,可改用:  ./檔名.AppImage --appimage-extract-and-run
+TXT
+echo "使用說明 -> $DOC"

@@ -23,8 +23,56 @@ else
   rmdir "$P/data/voice" 2>/dev/null || true
 fi
 printf '@echo off\r\nscummvm.exe --extrapath=data -p data --auto-detect %%*\r\n' > "$P/play.bat"
-printf '印第安納·瓊斯:亞特蘭提斯之謎 — 繁中版 (Windows x64, %s)\r\n雙擊 play.bat 執行。F8 切字幕語言、F9 切語音。\r\n' "$MODE" > "$P/README.txt"
-[ "$MODE" = slim ] && printf '\r\nslim 版不含原版遊戲資料,請把合法持有的 ATLANTIS.000/.001/MONSTER.SOU 放進 data\\\r\n' >> "$P/README.txt"
+# 使用說明.txt(繁中,CRLF 讓記事本正常斷行)
+{
+cat <<TXT
+印第安納瓊斯:亞特蘭提斯之謎  繁體中文版(Windows x64)
+======================================================
+
+這是什麼
+--------
+LucasArts 1992 年經典冒險遊戲《Indiana Jones and the Fate of Atlantis》
+的繁體中文化版本,以 ScummVM 引擎執行。
+
+怎麼玩
+------
+1. 把整個資料夾解壓到任意位置(例如桌面)。
+2. 雙擊「play.bat」即可開始遊戲。
+   (若 Windows SmartScreen 跳出警告 → 「更多資訊」→「仍要執行」。)
+
+遊戲中常用按鍵
+--------------
+‧ F5  叫出選單(存檔 / 讀檔 / 設定)
+‧ F8  切換字幕語言
+‧ F9  切換語音
+‧ Alt+Enter  全螢幕 / 視窗切換
+
+存檔位置
+--------
+存檔放在你的使用者文件夾下的 ScummVM 存檔目錄,不在這個資料夾內,
+刪除本資料夾不會動到存檔。
+
+包內容
+------
+‧ scummvm.exe + 3 個執行階段 DLL(libgcc_s_seh-1 / libstdc++-6 / libwinpthread-1)
+‧ play.bat(啟動用)
+‧ data\\(繁中字型、譯名表、標題圖)
+TXT
+if [ "$MODE" = full ]; then
+cat <<'TXT'
+‧ data\(已內含遊戲資料 + 中文語音,解壓即玩)
+
+備註:本包含原版遊戲版權資料與中文配音,僅供個人保存使用,請勿散布。
+TXT
+else
+cat <<'TXT'
+
+slim 版「不含」原版遊戲資料。請把你合法持有的下列檔案放進 data\ 後再執行:
+    ATLANTIS.000  ATLANTIS.001  MONSTER.SOU
+(來源:Steam / GOG 安裝目錄,或原版光碟。)
+TXT
+fi
+} | sed 's/$/\r/' > "$P/使用說明.txt"
 # zip it up (參考 willy 的 dist/*.zip 做法)
 Z="dist-all/windows/IndyAtlantis-CHT-win64-$MODE.zip"
 rm -f "$Z"
