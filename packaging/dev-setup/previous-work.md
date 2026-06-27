@@ -38,6 +38,12 @@
 - **三平台重打包**(含 F8/F9 修正):Linux full AppImage 155M、Windows full 150M/slim 24M zip、macOS universal `.app`(CI 重編)。`patches/scumm-cjk.patch` 已含 F8/F9 修正。
 - **姊妹作啟動**:Last Crusade(`~/indian_jones/crusade`,另一獨立 repo)文本翻譯+引擎整合完成、配音進行中。
 
+### 後續新增(2026-06-27 第二批 — 殘留語音 bug + crusade per-character)
+
+- **殘留語音耦合修正**(commit `4251e3c`):使用者回測「F8 中字後 F9 切中配沒用,只有英字才有中配」。**真因比四組合那次更深**:字幕翻譯 `cjk_cht.cpp translateInPlace` 命中字典時整段 `memcpy` 從 byte 0 覆寫成 Big5+NUL,**把對白開頭的 talkie 語音觸發碼 `0xFF 0x0A xx xx`(4 段 16 bytes)洗掉**;一旦該句被譯成中文,`handleNextCharsetCode` case 10 收不到 offset → 中文 `.voc` 重導跟原版英配都點不到。**修法**:`controlPrefixLen()` 算前綴長、`writeTranslated()` 把 Big5 寫在 `buf+pfx`(保留觸發碼);動詞/動作句無語音前綴(pfx=0)不受影響。四組合(中字中配/中字英配/英字中配/英字英配)全通。issue #1 已回覆。
+- **三平台再重打包**(含殘留修正,時間戳 18:05–18:24):Linux full 154M/slim 30M AppImage、macOS universal tar.gz 138M、Windows full 150M/slim 24M zip。**全部 > 17:56 語音修正**。macOS 走 `gh workflow run build-macos.yml` → CI(arm64 + x86_64 + lipo)→ `gh run download macos-engine-app`(artifact 只含 `.app` 的 `Contents/`,外殼名會丟,要手動重建 `IndyAtlantis-CHT.app/` 再 `package_macos_local.sh`)。
+- **crusade per-character 配音**(靜態突破):講者 actor **寫在 SCUMM bytecode**,不必玩一輪收 CHTMAP。`scummrp` 拆 LFL → 自編 `descumm -3 -n` → `print(N,[Text])` 直接讀講者 → 算 cht_key → 全量 (key→actor) 對照(驗證 99.7%)。8 角色專屬聲線(亨利=2/艾爾莎=3/馬可斯=4/醉漢=5/唐納文=6/教練=9/聖杯騎士=10@房86),雜魚走 npc/。詳見該 repo `docs/voice-casting.md` + memory `static-speaker-extraction`。
+
 ## 待辦 / 開放項目
 
 - [ ] `CONTEXT.md` 幾個待確認譯名:Trottier / Sternhart 敬語、orichalcum 譯「山銅」or「奧利哈剛」。
@@ -70,3 +76,4 @@
 - `voice-redirect-verified` — 中文語音重導驗證正確(6968/6968);英文=覆蓋缺口;headless 測不到
 - `translation-loop-state` — 自動翻譯 loop 的 SOP 與進度
 - `packaging-cross-build` — 三平台打包架構 + cross-compile 踩雷(端序 / wine / SDL2 自編 / macos-14+15-intel / lipo)
+- `static-speaker-extraction` — SCUMM per-character 配音:descumm 靜態抽講者(print(N,Text)),不靠玩遊戲;crusade actor 對照 + edge-tts 合法聲線
