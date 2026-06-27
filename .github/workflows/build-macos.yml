@@ -23,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: build tools (no SDL2 from brew)
-        run: brew install nasm pkg-config python3 || true
+        run: brew install nasm pkg-config python3 dylibbundler || true
       - name: self-build SDL2 (universal, static)
         run: |
           curl -L "https://github.com/libsdl-org/SDL/releases/download/release-${SDL2_VER}/SDL2-${SDL2_VER}.tar.gz" | tar xz
@@ -34,10 +34,9 @@ jobs:
           make -j"$(sysctl -n hw.ncpu)" && make install
       - name: scummvm + patch
         run: |
-          mkdir sv && cd sv && git init -q
-          git remote add origin https://github.com/scummvm/scummvm.git
-          git fetch --depth 1 origin "$SCUMMVM_REF" -q && git checkout -q FETCH_HEAD
-          git apply "$GITHUB_WORKSPACE/patches/scumm-cjk.patch"
+          git clone --depth 1 https://github.com/scummvm/scummvm.git sv
+          cd sv
+          git apply "$GITHUB_WORKSPACE/patches/scumm-cjk.patch" || patch -p1 < "$GITHUB_WORKSPACE/patches/scumm-cjk.patch"
       - name: configure + build (universal, scumm only, self SDL2)
         run: |
           cd sv
@@ -55,8 +54,10 @@ jobs:
         run: |
           python3 tools/build_translation.py --out atlantis_zh.tab
           A="dist/IndyAtlantis-CHT.app/Contents"
-          mkdir -p "$A/MacOS" "$A/Resources/data"
+          mkdir -p "$A/MacOS" "$A/Resources/data" "$A/libs"
           cp sv/scummvm "$A/MacOS/scummvm"
+          # fold any non-system dylibs into the .app (SDL2 is static, so usually none)
+          dylibbundler -od -b -x "$A/MacOS/scummvm" -d "$A/libs" -p @executable_path/../libs || true
           cp atlantis_zh.tab fonts/atlantis_zh16.dcjk fonts/atlantis_zh24.dcjk fonts/atlantis_title.spr "$A/Resources/data/"
           printf '#!/bin/sh\ncd "$(dirname "$0")"\nexec ./scummvm --extrapath=../Resources/data -p ../Resources/data --auto-detect "$@"\n' > "$A/MacOS/launch.sh"
           chmod +x "$A/MacOS/launch.sh" "$A/MacOS/scummvm"
