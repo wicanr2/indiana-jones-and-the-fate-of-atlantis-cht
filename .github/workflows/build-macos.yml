@@ -1,12 +1,17 @@
 name: build-macos
 
-# macOS 只能在 macOS 上編,所以走 GitHub Action:自編 SDL2(universal)→ 套 patch →
-# 編 scumm 引擎(x86_64 + arm64 universal)→ 上傳 .app artifact。
+# macOS 只能在 macOS 上編,所以走 GitHub Action:自編 SDL2 → 套 patch →
+# 編 scumm 引擎(arm64-native,對齊 willy 的作法)→ 上傳 .app artifact。
 # 抓回本機後,用 scripts/package_macos_local.sh 合進中文語音 + 遊戲資料成完整包到 dist-all。
 # (Linux 走本機 scripts/package_appimage.sh;Windows 走本機 scripts/build_windows_docker.sh。)
 #
 # 壓縮音訊編解碼全關(FOA + 中文語音都是 raw VOC),相依縮到只剩自編的 SDL2。
-# SDL2 一律從原始碼自編,不用 brew 的 sdl2。
+# SDL2 一律從原始碼自編,不用 brew 的 sdl2(brew 的會變 sdl2-compat → 黑畫面)。
+#
+# ⚠️ 不做 universal(-arch x86_64 -arch arm64):會餵 -mmacosx-version-min 進 ScummVM
+# configure 的版本解析,炸出 "integer expression expected"。willy(reference)也是
+# arm64-native + 乾淨 configure。macos-14 本來就 arm64,涵蓋現今絕大多數 Mac。
+# 若日後要 Intel,改走「分弧各編一次 + lipo 合併」而非單次 -arch 雙弧。
 
 on:
   workflow_dispatch:
@@ -19,33 +24,29 @@ env:
 
 jobs:
   macos:
-    # macos-13 已退役(排隊卡死);macos-14 = Apple Silicon(arm64),
-    # 我們用 -arch x86_64 -arch arm64 自編 universal,兩弧都涵蓋。
+    # macos-13 已退役(排隊卡死);macos-14 = Apple Silicon(arm64),對齊 willy。
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
       - name: build tools (no SDL2 from brew)
         run: brew install nasm pkg-config python3 dylibbundler || true
-      - name: self-build SDL2 (universal, static)
+      - name: self-build SDL2 (arm64-native, static)
         run: |
           curl -L "https://github.com/libsdl-org/SDL/releases/download/release-${SDL2_VER}/SDL2-${SDL2_VER}.tar.gz" | tar xz
           cd "SDL2-${SDL2_VER}"
-          ./configure --prefix="$GITHUB_WORKSPACE/sdl2" --disable-shared --enable-static \
-            CFLAGS="-arch x86_64 -arch arm64 -mmacosx-version-min=11.0" \
-            LDFLAGS="-arch x86_64 -arch arm64 -mmacosx-version-min=11.0"
+          ./configure --prefix="$GITHUB_WORKSPACE/sdl2" --disable-shared --enable-static
           make -j"$(sysctl -n hw.ncpu)" && make install
       - name: scummvm + patch
         run: |
           git clone --depth 1 https://github.com/scummvm/scummvm.git sv
           cd sv
           git apply "$GITHUB_WORKSPACE/patches/scumm-cjk.patch" || patch -p1 < "$GITHUB_WORKSPACE/patches/scumm-cjk.patch"
-      - name: configure + build (universal, scumm only, self SDL2)
+      - name: configure + build (arm64-native, scumm only, self SDL2)
         run: |
           cd sv
-          # ScummVM configure has no --extra-*flags; pass arch via env (it picks up CXX/LDFLAGS)
-          ARCH="-arch x86_64 -arch arm64 -mmacosx-version-min=11.0"
+          # 乾淨 configure(對齊 willy);不塞 -arch / -mmacosx-version-min,
+          # 否則 ScummVM configure 的版本解析會炸 "integer expression expected"。
           PATH="$GITHUB_WORKSPACE/sdl2/bin:$PATH" \
-          CXXFLAGS="$ARCH" CFLAGS="$ARCH" LDFLAGS="$ARCH" \
           ./configure --disable-all-engines --enable-engine=scumm \
             --with-sdl-prefix="$GITHUB_WORKSPACE/sdl2" --enable-release \
             --disable-mad --disable-vorbis --disable-flac --disable-fluidsynth --disable-tremor \
