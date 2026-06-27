@@ -199,12 +199,26 @@ scumm:atlantis   Indiana Jones and the Fate of Atlantis (CD/DOS/English)
 <a name="quickstart"></a>
 ## 快速開始
 
-> 打包檔尚未產出;目前是「自備遊戲資料 + 套 patch 自行編 ScummVM」的開發流程。
+三個平台都有打包好的版本,下載解開就能玩;也可以自己套 patch 編。
+
+### 下載即玩
+
+每個包裡都附一份 `使用說明.txt`,寫了該平台的啟動方式與第一次執行要注意的點。共通操作:遊戲中 **F5** 叫選單(存檔 / 讀檔)、**F8** 切字幕語言(中 / 英)、**F9** 切語音(中 / 英)。
+
+| 平台 | 怎麼跑 |
+|---|---|
+| **Windows**(x64) | 解開 zip,雙擊 `play.bat`。SmartScreen 跳警告 → 「更多資訊」→「仍要執行」。引擎靜態連結,只附 3 個 mingw runtime DLL。 |
+| **Linux**(x86_64) | `chmod +x` 後執行單檔 `.AppImage`。缺 FUSE 就改 `./檔名.AppImage --appimage-extract-and-run`。 |
+| **macOS**(universal:Intel + Apple Silicon) | 解開 `.tar.gz`,對 `.app` 按右鍵 →「打開」→ 再「打開」(未簽章);或終端機 `xattr -dr com.apple.quarantine <.app>`。需 macOS 11 以上。 |
+
+公開版是 **slim**:含引擎 + 繁中字型 / 譯名 / 標題,**不含原版遊戲資料**。把你合法持有的 `ATLANTIS.000`、`ATLANTIS.001`、`MONSTER.SOU`(Steam / GOG 安裝目錄或原版光碟)放進包內 `data/`(Windows)或 `.AppImage` 旁(Linux),即可遊玩。內嵌遊戲與中文語音的 **full** 版含 LucasArts 版權資料,僅本機自留、不公開散布。
+
+### 自己編(開發者)
 
 1. 準備遊戲資料:CD 版 ISO 解開後的 `ATLANTIS/`(需含 `ATLANTIS.000` 索引),放成 `game/`。
 2. 取 ScummVM 原始碼,套 `patches/scumm-cjk.patch`,以 `--enable-engine=scumm` 編譯。
-3. 放進 `game/`:字型(`tools/build_cjk_font.py` 烘的 `atlantis_zh{12,16,24}.dcjk`)、譯表(`tools/build_translation.py` 由 `translations/zh.tsv` 編)、中文配音(`tools/build_voice.py` 接 `scripts/dub_batch.sh` 烘的 `game/voice/*.voc` 與 `atlantis_voice.tab`)、中文標題圖(`tools/title/design_title.py` 烘的 `atlantis_title.spr`,源檔在 `fonts/`)。
-4. 啟動即偵測為 *Indiana Jones and the Fate of Atlantis*:底部動詞、句子列、對白全顯示中文,語音為中文配音。**F8** 切字幕語言(中 / 英)、**F9** 切語音(中 / 英)。
+3. 放進 `game/`:字型(`tools/build_cjk_font.py` 烘的 `atlantis_zh{12,16,24}.dcjk`)、譯表(`tools/build_translation.py` 由 `translations/zh.tsv` 編)、中文配音(`tools/build_voice.py` 接 `scripts/dub_batch.sh` 烘的 `game/voice/*.voc` 與 `atlantis_voice.tab`)、中文標題圖(`tools/title/design_title.py` 烘的 `atlantis_title.spr`,源檔在 `fonts/`)。啟動即偵測為 *Indiana Jones and the Fate of Atlantis*,介面 / 對白 / 語音全中文。
+4. 打包:`scripts/package_appimage.sh slim|full`(Linux AppImage)、`scripts/build_windows_docker.sh` + `scripts/package_windows.sh slim|full`(Windows zip,docker cross-mingw)、`.github/workflows/build-macos.yml` 出 `.app` artifact 後 `scripts/package_macos_local.sh`(macOS universal)。各腳本自動附 `使用說明.txt`。
 
 ---
 
@@ -224,15 +238,15 @@ scumm:atlantis   Indiana Jones and the Fate of Atlantis (CD/DOS/English)
 
 完整六階段(補索引 → 抽字 → 烘字型 → 引擎 patch → 翻譯 → 打包驗證)見 **[PLAN.md](PLAN.md)**。字幕(4760 條)、中文配音(5552 點)、標題中文化都已收尾。
 
-**打包**也上線了,三個平台各走最適合的路。共通設計:壓縮音訊編解碼全關(FOA 原版與中文配音都是 raw VOC),相依縮到只剩**自編的 SDL2** + zlib;原版 `ATLANTIS.001` / `MONSTER.SOU`(LucasArts 版權)與 272 MB 中文語音**只進本機完整包,不公開散布**。
+**打包**三個平台都產出了,各走最適合的路。共通設計:壓縮音訊編解碼全關(FOA 原版與中文配音都是 raw VOC),相依縮到只剩**自編的 SDL2** + zlib;原版 `ATLANTIS.001` / `MONSTER.SOU`(LucasArts 版權)與 272 MB 中文語音**只進本機完整包,不公開散布**。
 
 | 平台 | 怎麼編 | 產物 |
 |---|---|---|
-| **Linux** | `scripts/package_appimage.sh slim\|full`,單檔 AppImage(bundle 相依 .so + AppRun) | slim 30 MB(自備遊戲)/ **full 155 MB 開箱即玩**(內嵌語音+遊戲);均已實測 |
-| **Windows** | `scripts/build_windows_docker.sh`,**docker cross-mingw** 自編 SDL2 靜態連結 → `scummvm.exe`,本機合遊戲資料 | x64 包 |
-| **macOS** | `.github/workflows/build-macos.yml`(GitHub Action,自編 universal SDL2,**不用 brew sdl2**)→ 抓 `.app` artifact 回本機,`scripts/package_macos_local.sh` 合語音+遊戲 | universal `.app` |
+| **Linux** | `scripts/package_appimage.sh slim\|full`,單檔 AppImage(bundle 相依 .so + AppRun) | slim 30 MB / **full 155 MB 開箱即玩**;均已實測獨立啟動 |
+| **Windows** | `scripts/build_windows_docker.sh`,**docker cross-mingw** 自編 SDL2 靜態連結 → `scummvm.exe`(import 表全系統 DLL),`scripts/package_windows.sh` 合資料並 zip | slim 24 MB / full 150 MB zip;靜態 exe + 3 個 mingw runtime DLL |
+| **macOS** | `.github/workflows/build-macos.yml`:`macos-14`(arm64)+ `macos-15-intel`(x86_64)**各自 native 編** → `lipo` 合 universal → `.app` artifact 回本機,`scripts/package_macos_local.sh` 合語音+遊戲 | **universal `.app`**(Intel + Apple Silicon),full 372 MB |
 
-Linux full AppImage 獨立啟動已驗證(內嵌遊戲 + 中文標題正常)。剩下的是定稿 [CONTEXT.md](CONTEXT.md) 幾個待確認譯名(Trottier / Sternhart 敬語、orichalcum 譯「山銅」或「奧利哈剛」),與在 GitHub runner 上跑通 macOS job。
+Linux full AppImage 獨立啟動已驗證(內嵌遊戲 + 中文標題正常);macOS CI 三 job 全綠、`lipo` 後 binary 確認雙弧。剩下的是定稿 [CONTEXT.md](CONTEXT.md) 幾個待確認譯名(Trottier / Sternhart 敬語、orichalcum 譯「山銅」或「奧利哈剛」)。
 
 ---
 
