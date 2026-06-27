@@ -54,7 +54,7 @@ ls -la "$SV"/scummvm.exe && echo "BUILD OK: scummvm.exe"
 # This build static-links SDL2/zlib/libstdc++/libgcc/winpthread, so the import
 # table is all-Windows-system and the walk bundles 0 DLLs (exe is self-contained);
 # the walk still future-proofs against a build that links something dynamically.
-mkdir -p /work/build-win/out
+rm -rf /work/build-win/out; mkdir -p /work/build-win/out
 cp "$SV"/scummvm.exe /work/build-win/out/
 OBJDUMP=$H-objdump
 SEARCH="/usr/lib/gcc/$H/*-win32 /usr/lib/gcc/$H /usr/$H/lib /usr/$H/bin $PFX/bin $PFX/lib"
@@ -71,5 +71,10 @@ while [ -n "$queue" ]; do
     [ -n "$f" ] && cp -n "$f" /work/build-win/out/ && echo "  bundle DLL: $dll" && queue=$(printf '%s\n%s' "$queue" "$dll")
   done
 done
-echo "non-system DLLs bundled: $(ls /work/build-win/out/*.dll 2>/dev/null | wc -l)  (0 = fully static, self-contained)"
+# also ship the 3 mingw runtime DLLs unconditionally (static build doesn't import
+# them, but bundling the standard mingw runtime is convention + belt-and-suspenders)
+for d in libgcc_s_seh-1 libstdc++-6 libwinpthread-1; do
+  f=$(find $SEARCH -maxdepth 1 -iname "$d.dll" 2>/dev/null | head -1); [ -n "$f" ] && cp -n "$f" /work/build-win/out/ || true
+done
+echo "DLLs in package: $(ls /work/build-win/out/*.dll 2>/dev/null | wc -l) (exe is static; mingw runtime bundled defensively)"
 ls -la /work/build-win/out/

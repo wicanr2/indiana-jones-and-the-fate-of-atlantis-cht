@@ -51,7 +51,7 @@ docker run --rm -v $PWD:/work -w /work debian:12-slim bash scripts/build_windows
 
 ## macOS:GitHub Action 編 → 抓回本機注入(參考 mac-app-cross-pack)
 
-- `.github/workflows/build-macos.yml`:`runs-on: macos-13/14`,**自編 universal SDL2**(`--disable-shared --enable-static CFLAGS="-arch x86_64 -arch arm64"`),**不用 `brew sdl2`**(brew 的會變 sdl2-compat → 黑畫面);`git clone --depth1` + patch;configure 同樣關壓縮編解碼 + `--extra-cflags/ldflags="-arch x86_64 -arch arm64"`;`dylibbundler` 把非系統 dylib 收進 `.app/Contents/libs`;上傳 `.app` artifact。
+- `.github/workflows/build-macos.yml`:**`runs-on: macos-14`**(⚠️ **macos-13 已退役 → run 永遠 queued 卡死**;macos-14 = Apple Silicon/arm64,自編 universal 兩弧都涵蓋;舊 Intel 要 `macos-15-intel`),**自編 universal SDL2**(`--disable-shared --enable-static CFLAGS="-arch x86_64 -arch arm64 -mmacosx-version-min=11.0"`,⚠️ **arm64 最低 11.0,不能寫 10.13 否則衝突**),**不用 `brew sdl2`**(brew 的會變 sdl2-compat → 黑畫面);`git clone --depth1` + patch;configure 同樣關壓縮編解碼。⚠️ **ScummVM configure 沒有 `--extra-cflags/ldflags`**(寫了會 "unrecognized option" 整個 build 炸),arch 改用**環境變數** `CXXFLAGS="$ARCH" CFLAGS="$ARCH" LDFLAGS="$ARCH"` 傳進去;`dylibbundler` 把非系統 dylib 收進 `.app/Contents/libs`;上傳 `.app` artifact。
 - 觸發 + 抓回:`gh workflow run build-macos.yml` → `gh run watch <id> --exit-status` → `gh run download <id>`。
 - `scripts/package_macos_local.sh <下載的.app>`:把 TTS 語音 + 你的遊戲資料注入 `.app/Contents/Resources/data/` → full `.app` 到 `dist-all/macos/`(個人自留)。
 - 細節(Gatekeeper `xattr -dr com.apple.quarantine`、APFS DMG Windows 讀不到改 `.tar.gz`、universal lipo)見 `mac-app-cross-pack` skill。
