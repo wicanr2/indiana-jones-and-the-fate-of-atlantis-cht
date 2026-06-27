@@ -30,6 +30,14 @@
 - 標題 / 字型:docker + PIL。AppImage:`appimagetool`。
 - **headless 測不到語音**(`_voiceMode==2` subtitles-only 預設);語音要真有音訊輸出的環境。
 
+## 後續新增(2026-06-27 續做)
+
+- **F8/F9 字幕/語音四種組合解耦**(commit `4d07d8f`):根因不是 `_chtTextOn`/`_chtVoiceOn`(本來就獨立),是字幕「可見」/語音「可聽」被原版 `voiceMode` 掐住(auto-detect 預設 voiceMode 0=只語音字幕關;手動開字幕→voiceMode 2=語音靜音)→ 永遠只剩兩個對角組合。修法:CHT 啟用時把 voiceMode 釘「語音+字幕都開」(`charset.cpp loadCJKFont` + `scumm.cpp syncSoundSettings`),F8/F9 變兩個獨立語言開關。
+- **GitHub issue #1**(commit `f7de734`):① 句子列 12px 中文字卡房間↔面板交界被裁 → `verbs.cpp drawVerb` 跨界上提 ypos;② F8/F9 加螢幕橫幅提示(`input.cpp`);③ 啟動 WARNING 診斷為無害 launcher 主題/字型警告。
+- **YouTube 介紹片**:`scripts/make_intro_video.sh`(截圖+中文字幕 montage)、`scripts/capture_gameplay_video.sh`(Xvfb+x11grab+SDL disk 錄實機+iMUSE 音樂)、`scripts/make_gameplay_video.sh`(真 logo+中文截圖+遊戲音樂)→ `dist-all/video/`。
+- **三平台重打包**(含 F8/F9 修正):Linux full AppImage 155M、Windows full 150M/slim 24M zip、macOS universal `.app`(CI 重編)。`patches/scumm-cjk.patch` 已含 F8/F9 修正。
+- **姊妹作啟動**:Last Crusade(`~/indian_jones/crusade`,另一獨立 repo)文本翻譯+引擎整合完成、配音進行中。
+
 ## 待辦 / 開放項目
 
 - [ ] `CONTEXT.md` 幾個待確認譯名:Trottier / Sternhart 敬語、orichalcum 譯「山銅」or「奧利哈剛」。
