@@ -25,4 +25,9 @@ fi
 printf '@echo off\r\nscummvm.exe --extrapath=data -p data --auto-detect %%*\r\n' > "$P/play.bat"
 printf '印第安納·瓊斯:亞特蘭提斯之謎 — 繁中版 (Windows x64, %s)\r\n雙擊 play.bat 執行。F8 切字幕語言、F9 切語音。\r\n' "$MODE" > "$P/README.txt"
 [ "$MODE" = slim ] && printf '\r\nslim 版不含原版遊戲資料,請把合法持有的 ATLANTIS.000/.001/MONSTER.SOU 放進 data\\\r\n' >> "$P/README.txt"
-du -sh "$P"; echo "Windows $MODE -> $P"
+# zip it up (參考 willy 的 dist/*.zip 做法)
+Z="dist-all/windows/IndyAtlantis-CHT-win64-$MODE.zip"
+rm -f "$Z"
+if command -v zip >/dev/null 2>&1; then ( cd dist-all/windows && zip -qr "IndyAtlantis-CHT-win64-$MODE.zip" "IndyAtlantis-CHT-win64-$MODE" )
+else python3 -c "import shutil; shutil.make_archive('dist-all/windows/IndyAtlantis-CHT-win64-$MODE','zip','dist-all/windows','IndyAtlantis-CHT-win64-$MODE')"; fi
+du -sh "$P" "$Z"; echo "Windows $MODE -> $Z"
