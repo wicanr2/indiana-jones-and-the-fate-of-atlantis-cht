@@ -453,10 +453,10 @@ index bf85f13c..d9f96624 100644
  
  void ScummEngine_v6::drawDirtyScreenParts() {
 diff --git a/engines/scumm/input.cpp b/engines/scumm/input.cpp
-index ecef09cf..b9a4cf43 100644
+index ecef09cf..59839406 100644
 --- a/engines/scumm/input.cpp
 +++ b/engines/scumm/input.cpp
-@@ -957,6 +957,20 @@ void ScummEngine_v3::processKeyboard(Common::KeyState lastKeyHit) {
+@@ -957,6 +957,24 @@ void ScummEngine_v3::processKeyboard(Common::KeyState lastKeyHit) {
  }
  
  void ScummEngine::processKeyboard(Common::KeyState lastKeyHit) {
@@ -466,10 +466,14 @@ index ecef09cf..b9a4cf43 100644
 +	if (_chtBig5) {
 +		if (lastKeyHit.keycode == Common::KEYCODE_F8 && lastKeyHit.hasFlags(0)) {
 +			_chtTextOn = !_chtTextOn;
++			// On-screen feedback so the toggle is visibly confirmed (issue #1).
++			showBannerAndPause(0, 90, _chtTextOn ? "Subtitles: Chinese (F8)" : "Subtitles: English (F8)");
 +			return;
 +		}
 +		if (lastKeyHit.keycode == Common::KEYCODE_F9 && lastKeyHit.hasFlags(0)) {
 +			_chtVoiceOn = !_chtVoiceOn;
++			// On-screen feedback: voice has no headless cue, so confirm it here.
++			showBannerAndPause(0, 90, _chtVoiceOn ? "Voice: Chinese (F9)" : "Voice: English (F9)");
 +			return;
 +		}
 +	}
@@ -668,10 +672,10 @@ index ebb998ec..6e03f84f 100644
  		fakeBidiString(buf, false, sizeof(buf));
  
 diff --git a/engines/scumm/verbs.cpp b/engines/scumm/verbs.cpp
-index 1637dd33..7a681f4f 100644
+index 1637dd33..43343d1e 100644
 --- a/engines/scumm/verbs.cpp
 +++ b/engines/scumm/verbs.cpp
-@@ -1144,6 +1144,11 @@ void ScummEngine::drawVerb(int verb, int mode, Common::TextToSpeechManager::Acti
+@@ -1144,6 +1144,21 @@ void ScummEngine::drawVerb(int verb, int mode, Common::TextToSpeechManager::Acti
  		_string[4].charset = vs->charset_nr;
  		_string[4].xpos = isRtl ? vs->origLeft : vs->curRect.left + pixelXOffset;
  		_string[4].ypos = vs->curRect.top + pixelYOffset;
@@ -680,6 +684,16 @@ index 1637dd33..7a681f4f 100644
 +		// the verb-panel divider line. Lift them to vertically centre in the cell.
 +		if (_chtBig5)
 +			_string[4].ypos += _chtVerbYOffset;
++		// FOA CHT: the action-sentence line sits in the room just above the
++		// room->verb-panel boundary; the taller 12px Big5 glyph spills below it
++		// into the verb area and is clipped at the room bottom (only the glyph
++		// tops show — issue #1). When a label straddles that boundary, lift it so
++		// the full glyph height stays inside the room area.
++		if (_chtBig5) {
++			int roomBottom = _virtscr[kMainVirtScreen].topline + _virtscr[kMainVirtScreen].h;
++			if (_string[4].ypos < roomBottom && _string[4].ypos + _2byteHeight > roomBottom)
++				_string[4].ypos = roomBottom - _2byteHeight;
++		}
  		_string[4].right = _screenWidth - 1 + pixelXOffset;
  		_string[4].center = vs->center;
  
