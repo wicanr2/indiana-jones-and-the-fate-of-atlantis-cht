@@ -47,3 +47,6 @@ dist-all/
 
 # 輕量字型資產納入追蹤(供 CI 打包,衍生自開源 CJK 字型)
 !fonts/*.dcjk
+
+# Windows cross-build 中間產物(SDL2/zlib prefix + scummvm source copy,大)
+build-win/

@@ -224,12 +224,15 @@ scumm:atlantis   Indiana Jones and the Fate of Atlantis (CD/DOS/English)
 
 完整六階段(補索引 → 抽字 → 烘字型 → 引擎 patch → 翻譯 → 打包驗證)見 **[PLAN.md](PLAN.md)**。字幕(4760 條)、中文配音(5552 點)、標題中文化都已收尾。
 
-**打包**也上線了,分兩條路:
+**打包**也上線了,三個平台各走最適合的路。共通設計:壓縮音訊編解碼全關(FOA 原版與中文配音都是 raw VOC),相依縮到只剩**自編的 SDL2** + zlib;原版 `ATLANTIS.001` / `MONSTER.SOU`(LucasArts 版權)與 272 MB 中文語音**只進本機完整包,不公開散布**。
 
-- **公開三平台**(Windows / Linux AppImage / macOS):`.github/workflows/build.yml`。每個 job **自編 SDL2**、clone 對應 commit 的 ScummVM、套 `scumm-cjk.patch`、編 scumm 引擎,連同**輕量中文資產**(字型 / 譯表 / 標題)打成 slim 包——**玩家自備合法持有的遊戲資料**。原版 `ATLANTIS.001` / `MONSTER.SOU` 是 LucasArts 版權內容,**不入公開 CI**。
-- **本機完整包**:`scripts/package_linux.sh full` 把引擎 + 相依 + 中文資產 + **中文配音(272 MB)+ 你自己的遊戲資料**組成「開箱即玩」目錄到 `dist-all/`(個人用,不公開散布)。Linux x86_64 已實測可跑。
+| 平台 | 怎麼編 | 產物 |
+|---|---|---|
+| **Linux** | `scripts/package_appimage.sh slim\|full`,單檔 AppImage(bundle 相依 .so + AppRun) | slim 30 MB(自備遊戲)/ **full 155 MB 開箱即玩**(內嵌語音+遊戲);均已實測 |
+| **Windows** | `scripts/build_windows_docker.sh`,**docker cross-mingw** 自編 SDL2 靜態連結 → `scummvm.exe`,本機合遊戲資料 | x64 包 |
+| **macOS** | `.github/workflows/build-macos.yml`(GitHub Action,自編 universal SDL2,**不用 brew sdl2**)→ 抓 `.app` artifact 回本機,`scripts/package_macos_local.sh` 合語音+遊戲 | universal `.app` |
 
-剩下的是定稿 [CONTEXT.md](CONTEXT.md) 裡幾個待確認的譯名(Trottier / Sternhart 的身分與敬語、orichalcum 譯「山銅」還是「奧利哈剛」),以及在 GitHub runner 上跑通 Windows / macOS 兩個 job(本機只驗證了 Linux)。
+Linux full AppImage 獨立啟動已驗證(內嵌遊戲 + 中文標題正常)。剩下的是定稿 [CONTEXT.md](CONTEXT.md) 幾個待確認譯名(Trottier / Sternhart 敬語、orichalcum 譯「山銅」或「奧利哈剛」),與在 GitHub runner 上跑通 macOS job。
 
 ---
 

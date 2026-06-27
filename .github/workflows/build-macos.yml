@@ -1,0 +1,77 @@
+name: build-macos
+
+# macOS 只能在 macOS 上編,所以走 GitHub Action:自編 SDL2(universal)→ 套 patch →
+# 編 scumm 引擎(x86_64 + arm64 universal)→ 上傳 .app artifact。
+# 抓回本機後,用 scripts/package_macos_local.sh 合進中文語音 + 遊戲資料成完整包到 dist-all。
+# (Linux 走本機 scripts/package_appimage.sh;Windows 走本機 scripts/build_windows_docker.sh。)
+#
+# 壓縮音訊編解碼全關(FOA + 中文語音都是 raw VOC),相依縮到只剩自編的 SDL2。
+# SDL2 一律從原始碼自編,不用 brew 的 sdl2。
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+env:
+  SCUMMVM_REF: ae89011b
+  SDL2_VER: '2.30.9'
+
+jobs:
+  macos:
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+      - name: build tools (no SDL2 from brew)
+        run: brew install nasm pkg-config python3 || true
+      - name: self-build SDL2 (universal, static)
+        run: |
+          curl -L "https://github.com/libsdl-org/SDL/releases/download/release-${SDL2_VER}/SDL2-${SDL2_VER}.tar.gz" | tar xz
+          cd "SDL2-${SDL2_VER}"
+          ./configure --prefix="$GITHUB_WORKSPACE/sdl2" --disable-shared --enable-static \
+            CFLAGS="-arch x86_64 -arch arm64 -mmacosx-version-min=10.13" \
+            LDFLAGS="-arch x86_64 -arch arm64 -mmacosx-version-min=10.13"
+          make -j"$(sysctl -n hw.ncpu)" && make install
+      - name: scummvm + patch
+        run: |
+          mkdir sv && cd sv && git init -q
+          git remote add origin https://github.com/scummvm/scummvm.git
+          git fetch --depth 1 origin "$SCUMMVM_REF" -q && git checkout -q FETCH_HEAD
+          git apply "$GITHUB_WORKSPACE/patches/scumm-cjk.patch"
+      - name: configure + build (universal, scumm only, self SDL2)
+        run: |
+          cd sv
+          PATH="$GITHUB_WORKSPACE/sdl2/bin:$PATH" \
+          ./configure --disable-all-engines --enable-engine=scumm \
+            --with-sdl-prefix="$GITHUB_WORKSPACE/sdl2" --enable-release \
+            --disable-mad --disable-vorbis --disable-flac --disable-fluidsynth --disable-tremor \
+            --disable-faad --disable-mpeg2 --disable-a52 --disable-theoradec --disable-vpx \
+            --disable-png --disable-jpeg --disable-gif --disable-freetype2 --disable-libcurl \
+            --extra-cflags="-arch x86_64 -arch arm64 -mmacosx-version-min=10.13" \
+            --extra-ldflags="-arch x86_64 -arch arm64 -mmacosx-version-min=10.13"
+          make -j"$(sysctl -n hw.ncpu)"
+          lipo -info scummvm || file scummvm
+      - name: build CHT text table + stage engine .app
+        run: |
+          python3 tools/build_translation.py --out atlantis_zh.tab
+          A="dist/IndyAtlantis-CHT.app/Contents"
+          mkdir -p "$A/MacOS" "$A/Resources/data"
+          cp sv/scummvm "$A/MacOS/scummvm"
+          cp atlantis_zh.tab fonts/atlantis_zh16.dcjk fonts/atlantis_zh24.dcjk fonts/atlantis_title.spr "$A/Resources/data/"
+          printf '#!/bin/sh\ncd "$(dirname "$0")"\nexec ./scummvm --extrapath=../Resources/data -p ../Resources/data --auto-detect "$@"\n' > "$A/MacOS/launch.sh"
+          chmod +x "$A/MacOS/launch.sh" "$A/MacOS/scummvm"
+          cat > "$A/Info.plist" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>CFBundleExecutable</key><string>launch.sh</string>
+            <key>CFBundleIdentifier</key><string>tw.wicanr2.indyatlantis.cht</string>
+            <key>CFBundleName</key><string>Indy Atlantis CHT</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>LSMinimumSystemVersion</key><string>10.13</string>
+          </dict></plist>
+          PLIST
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-engine-app
+          path: dist/IndyAtlantis-CHT.app
