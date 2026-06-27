@@ -23,18 +23,21 @@ index 7c48e492..36813e7d 100644
  	// bug (#11480). It is not okay to skip the stopTalk() calls here.
  	// Instead, I have added two checks from LOOM DOS EGA disasm (one
 diff --git a/engines/scumm/charset.cpp b/engines/scumm/charset.cpp
-index 81c14ae2..e079465d 100644
+index 81c14ae2..fcecc8f8 100644
 --- a/engines/scumm/charset.cpp
 +++ b/engines/scumm/charset.cpp
-@@ -21,6 +21,7 @@
+@@ -19,8 +19,10 @@
+  *
+  */
  
++#include "common/config-manager.h"
  #include "graphics/font.h"
  #include "scumm/charset.h"
 +#include "scumm/cjk_cht.h"
  #include "scumm/file.h"
  #include "scumm/scumm.h"
  #include "scumm/macgui/macgui.h"
-@@ -66,6 +67,53 @@ void ScummEngine::loadCJKFont() {
+@@ -66,6 +68,62 @@ void ScummEngine::loadCJKFont() {
  		return;
  	}
  
@@ -59,6 +62,15 @@ index 81c14ae2..e079465d 100644
 +				_useCJKMode = true;
 +				_textSurfaceMultiplier = 1;
 +				_newLineCharacter = 0;
++				// F8 switches subtitle language and F9 switches voice language as
++				// two fully independent toggles. For all four CH/EN combinations to
++				// be reachable, keep both subtitles and speech permanently on: the
++				// original single voice-mode slider (Voice Only hides subtitles /
++				// Text Only mutes the English voice) otherwise strands the player in
++				// only two of the four states. syncSoundSettings() re-pins this; here
++				// we set the boot default so the first line already shows both.
++				ConfMan.setBool("subtitles", true);
++				ConfMan.setBool("speech_mute", false);
 +				// Load the English->Big5 dictionary (extends the built-in MVP table).
 +				{
 +					ScummFile tf(this);
@@ -88,7 +100,7 @@ index 81c14ae2..e079465d 100644
  	ScummFile fp(this);
  
  	if (_game.version <= 5 && _game.platform == Common::kPlatformFMTowns && _language == Common::JA_JPN) { // FM-TOWNS v3 / v5 Kanji
-@@ -264,6 +312,15 @@ byte *ScummEngine::get2byteCharPtr(int idx) {
+@@ -264,6 +322,15 @@ byte *ScummEngine::get2byteCharPtr(int idx) {
  
  		break;
  	case Common::ZH_TWN:
@@ -104,342 +116,6 @@ index 81c14ae2..e079465d 100644
  		{
  			int base = 0;
  			byte low = idx % 256;
-diff --git a/engines/scumm/gfx.cpp b/engines/scumm/gfx.cpp
-index bf85f13c..d9f96624 100644
---- a/engines/scumm/gfx.cpp
-+++ b/engines/scumm/gfx.cpp
-@@ -532,6 +532,67 @@ void ScummEngine::markRectAsDirty(VirtScreenNumber virt, int left, int right, in
-  * graphics to the actual display, as needed. In addition, the 'shaking'
-  * code in the backend is controlled from here.
-  */
-+// FOA CHT: blit the designed Chinese title overlay (印第安納·瓊斯 / 亞特蘭提斯之謎)
-+// onto the title room. atlantis_title.spr = [u16 x][u16 y][u16 w][u16 h] + RGBA px.
-+// Opaque px are colour-matched to the live palette so the text fades with the logo.
-+void ScummEngine::drawAtlantisTitle() {
-+	if (_game.id != GID_INDY4 || _currentRoom != 4)
-+		return;
-+	static int loaded = -1;
-+	static uint16 tx = 0, ty = 0, tw = 0, th = 0;
-+	static byte *trgba = nullptr;
-+	if (loaded < 0) {
-+		loaded = 0;
-+		ScummFile *f = instantiateScummFile(false);
-+		if (f && openFile(*f, Common::Path("atlantis_title.spr"))) {
-+			tx = f->readUint16LE(); ty = f->readUint16LE();
-+			tw = f->readUint16LE(); th = f->readUint16LE();
-+			uint32 n = (uint32)tw * th * 4;
-+			trgba = new byte[n];
-+			f->read(trgba, n);
-+			loaded = 1;
-+		}
-+		delete f;
-+	}
-+	if (loaded != 1)
-+		return;
-+
-+	Graphics::Surface *screen = _system->lockScreen();
-+	if (!screen || screen->format.bytesPerPixel != 1) {
-+		if (screen) _system->unlockScreen();
-+		return;
-+	}
-+	const byte *pal = _currentPalette;
-+	// small RGB->index cache (palette is constant for this call)
-+	uint32 cacheKey[64]; byte cacheVal[64]; int cacheN = 0;
-+	for (uint16 py = 0; py < th && ty + py < (uint)screen->h; py++) {
-+		byte *dst = (byte *)screen->getBasePtr(tx, ty + py);
-+		const byte *src = trgba + (uint32)py * tw * 4;
-+		for (uint16 px = 0; px < tw; px++, src += 4, dst++) {
-+			if (tx + px >= (uint)screen->w)
-+				break;
-+			if (src[3] < 128)
-+				continue;
-+			uint32 key = ((uint32)src[0] << 16) | ((uint32)src[1] << 8) | src[2];
-+			int idx = -1;
-+			for (int c = 0; c < cacheN; c++)
-+				if (cacheKey[c] == key) { idx = cacheVal[c]; break; }
-+			if (idx < 0) {
-+				int best = 0, bestd = 0x7fffffff;
-+				for (int i = 0; i < 256; i++) {
-+					int dr = src[0] - pal[i*3+0], dg = src[1] - pal[i*3+1], db = src[2] - pal[i*3+2];
-+					int d = dr*dr + dg*dg + db*db;
-+					if (d < bestd) { bestd = d; best = i; }
-+				}
-+				idx = best;
-+				if (cacheN < 64) { cacheKey[cacheN] = key; cacheVal[cacheN] = (byte)best; cacheN++; }
-+			}
-+			*dst = (byte)idx;
-+		}
-+	}
-+	_system->unlockScreen();
-+}
-+
- void ScummEngine::drawDirtyScreenParts() {
- 	// Update verbs
- 	updateDirtyScreen(kVerbVirtScreen);
-@@ -548,6 +609,8 @@ void ScummEngine::drawDirtyScreenParts() {
- 	} else {
- 		updateDirtyScreen(kMainVirtScreen);
- 	}
-+
-+	drawAtlantisTitle(); // FOA CHT title overlay (no-op outside the title room)
- }
- 
- void ScummEngine_v6::drawDirtyScreenParts() {
-diff --git a/engines/scumm/input.cpp b/engines/scumm/input.cpp
-index ecef09cf..b9a4cf43 100644
---- a/engines/scumm/input.cpp
-+++ b/engines/scumm/input.cpp
-@@ -957,6 +957,20 @@ void ScummEngine_v3::processKeyboard(Common::KeyState lastKeyHit) {
- }
- 
- void ScummEngine::processKeyboard(Common::KeyState lastKeyHit) {
-+	// --- Non-upstream: Fate of Atlantis CHT — F8 toggles Chinese text,
-+	// F9 toggles Chinese voice. Consumed early (F8 overrides the original
-+	// restart key; restart is still reachable from the menu). ---
-+	if (_chtBig5) {
-+		if (lastKeyHit.keycode == Common::KEYCODE_F8 && lastKeyHit.hasFlags(0)) {
-+			_chtTextOn = !_chtTextOn;
-+			return;
-+		}
-+		if (lastKeyHit.keycode == Common::KEYCODE_F9 && lastKeyHit.hasFlags(0)) {
-+			_chtVoiceOn = !_chtVoiceOn;
-+			return;
-+		}
-+	}
-+
- 	// Enable the following special keys conditionally:
- 	bool restartKeyEnabled = (VAR_RESTART_KEY == 0xFF || VAR(VAR_RESTART_KEY) != 0);
- 	bool pauseKeyEnabled = (VAR_PAUSE_KEY == 0xFF || VAR(VAR_PAUSE_KEY) != 0);
-diff --git a/engines/scumm/module.mk b/engines/scumm/module.mk
-index 2cee05ab..12879f1e 100644
---- a/engines/scumm/module.mk
-+++ b/engines/scumm/module.mk
-@@ -11,6 +11,7 @@ MODULE_OBJS := \
- 	cdda.o \
- 	charset.o \
- 	charset-fontdata.o \
-+	cjk_cht.o \
- 	costume.o \
- 	cursor.o \
- 	debugger.o \
-diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
-index ae7b4bb7..8abc7533 100644
---- a/engines/scumm/scumm.h
-+++ b/engines/scumm/scumm.h
-@@ -1761,6 +1761,20 @@ public:
- 
- 	// Somewhat hackish stuff for 2 byte support (Chinese/Japanese/Korean)
- 	bool _useCJKMode = false;
-+	// Non-upstream: Fate of Atlantis Traditional-Chinese (Big5) overlay active.
-+	// When set, the ZH_TWN glyph path uses CHT::big5LinearIndex and drawString()
-+	// swaps translated UI text in place. See cjk_cht.{h,cpp}.
-+	bool _chtBig5 = false;
-+	bool _chtTextOn = true;   // F8 toggles Chinese text on/off
-+	bool _chtVoiceOn = true;  // F9 toggles Chinese voice on/off
-+	// Optional larger font (24x24) used only for actor dialogue (displayDialog),
-+	// while the verb UI keeps the 12x12 font. See cjk_cht / displayDialog guard.
-+	byte *_cht24Ptr = nullptr;
-+	int _cht24W = 0, _cht24H = 0;
-+	int _chtVerbYOffset = -2; // vertical nudge to centre 12px Big5 verbs in the panel cells
-+	// FOA CHT: overlay a designed Chinese title (印第安納·瓊斯 / 亞特蘭提斯之謎) on the
-+	// title room, colour-matched to the current palette so it sits with the logo.
-+	void drawAtlantisTitle();
- 	bool _useMultiFont = false;
- 	int _numLoadedFont = 0;
- 	int _2byteShadow = 0;
-diff --git a/engines/scumm/sound.cpp b/engines/scumm/sound.cpp
-index bfb33823..99686731 100644
---- a/engines/scumm/sound.cpp
-+++ b/engines/scumm/sound.cpp
-@@ -23,6 +23,8 @@
- #include "common/util.h"
- #include "common/ptr.h"
- #include "common/substream.h"
-+#include "common/file.h"
-+#include "common/hashmap.h"
- 
- #include "scumm/actor.h"
- #include "scumm/file.h"
-@@ -480,6 +482,60 @@ void Sound::startTalkSound(uint32 offset, uint32 length, int mode, Audio::SoundH
- 	Common::ScopedPtr<ScummFile> file;
- 	uint32 origOffset = offset;
- 
-+	// --- Non-upstream: Fate of Atlantis Chinese voice redirect ---------------
-+	// For each talkie line, if its MONSTER.SOU offset is in atlantis_voice.tab
-+	// (decimal offset <TAB> external VOC filename), play the Chinese VOC instead.
-+	// Drop an empty file "atlantis_voice_dump" in the game dir to log offsets
-+	// (CHTVOICE\t<offset>) so we can map a heard line to its number. Off otherwise.
-+	if (_vm->_game.id == GID_INDY4 && _vm->_chtVoiceOn && (mode & DIGI_SND_MODE_TALKIE)) {
-+		static bool chtInit = false;
-+		static bool chtDump = false;
-+		static Common::HashMap<uint32, Common::String> chtMap;
-+		if (!chtInit) {
-+			chtInit = true;
-+			chtDump = Common::File::exists("atlantis_voice_dump");
-+			ScummFile *mf = _vm->instantiateScummFile(false);
-+			if (mf && _vm->openFile(*mf, Common::Path("atlantis_voice.tab"))) {
-+				while (!mf->eos()) {
-+					Common::String line = mf->readLine();
-+					uint32 tab = line.findFirstOf('\t');
-+					if (line.empty() || line[0] == '#' || tab == Common::String::npos)
-+						continue;
-+					uint32 off = (uint32)atol(line.c_str());
-+					Common::String fn(line.c_str() + tab + 1);
-+					fn.trim();
-+					if (!fn.empty())
-+						chtMap[off] = fn;
-+				}
-+			}
-+			delete mf;
-+		}
-+		if (chtDump)
-+			warning("%s", Common::String::format("CHTVOICE\t%u", (unsigned)offset).c_str());
-+		Common::HashMap<uint32, Common::String>::iterator it = chtMap.find(offset);
-+		if (it != chtMap.end()) {
-+			ScummFile *vf = _vm->instantiateScummFile(false);
-+			if (vf && _vm->openFile(*vf, Common::Path(it->_value))) {
-+				Audio::SeekableAudioStream *st =
-+					Audio::makeVOCStream(vf, Audio::FLAG_UNSIGNED, DisposeAfterUse::YES);
-+				if (st) {
-+					Audio::SoundHandle *h = handle ? handle : _talkChannelHandle;
-+					_mixer->stopHandle(*h);
-+					_mixer->playStream(Audio::Mixer::kSpeechSoundType, h, st);
-+					_digiSndMode |= mode;
-+					resetSpeechTimer();
-+					_mouthSyncMode = false;
-+					warning("%s", Common::String::format("CHTVOICE-PLAY\t%u\t%s",
-+						(unsigned)offset, it->_value.c_str()).c_str());
-+					return;
-+				}
-+			} else {
-+				delete vf;
-+			}
-+		}
-+	}
-+	// -------------------------------------------------------------------------
-+
- 	if (_vm->_game.id == GID_CMI || (_vm->_game.id == GID_DIG && !(_vm->_game.features & GF_DEMO))) {
- 		// COMI (full & demo), DIG (full)
- 		_digiSndMode |= mode;
-diff --git a/engines/scumm/string.cpp b/engines/scumm/string.cpp
-index ebb998ec..6e03f84f 100644
---- a/engines/scumm/string.cpp
-+++ b/engines/scumm/string.cpp
-@@ -27,6 +27,7 @@
- 
- #include "scumm/actor.h"
- #include "scumm/charset.h"
-+#include "scumm/cjk_cht.h"
- #include "scumm/dialogs.h"
- #include "scumm/file.h"
- #include "scumm/imuse_digi/dimuse_engine.h"
-@@ -1030,6 +1031,23 @@ void ScummEngine_v2::drawSentence() {
- 	drawString(2, (byte *)string);
- }
- 
-+// Non-upstream: for Fate of Atlantis CHT, swap the 2-byte font to the larger
-+// 24x24 dialogue font for the duration of displayDialog (auto-restored on any
-+// return), so spoken text is bigger while the verb UI keeps its 12x12 font.
-+struct ChtDialogFont {
-+	ScummEngine *_vm; byte *_p; int _w, _h; bool _on;
-+	ChtDialogFont(ScummEngine *vm) : _vm(vm), _on(false) {
-+		if (vm->_chtBig5 && vm->_chtTextOn && vm->_cht24Ptr) {
-+			_p = vm->_2byteFontPtr; _w = vm->_2byteWidth; _h = vm->_2byteHeight;
-+			vm->_2byteFontPtr = vm->_cht24Ptr; vm->_2byteWidth = vm->_cht24W; vm->_2byteHeight = vm->_cht24H;
-+			_on = true;
-+		}
-+	}
-+	~ChtDialogFont() {
-+		if (_on) { _vm->_2byteFontPtr = _p; _vm->_2byteWidth = _w; _vm->_2byteHeight = _h; }
-+	}
-+};
-+
- void ScummEngine::displayDialog() {
- 	Actor *a;
- 	if (_game.heversion >= 60 && _haveMsg == 3) {
-@@ -1040,6 +1058,8 @@ void ScummEngine::displayDialog() {
- 	if (!_haveMsg)
- 		return;
- 
-+	ChtDialogFont _chtDlgFont(this);   // 24x24 dialogue font (auto-restore)
-+
- 	_force2ByteCharHeight = false;
- 
- 	if (_game.version >= 4 && _game.version <= 6) {
-@@ -1365,6 +1385,11 @@ void ScummEngine::drawString(int a, const byte *msg, Common::TextToSpeechManager
- 
- 	convertMessageToString(msg, buf, sizeof(buf));
- 
-+	// Non-upstream: Fate of Atlantis CHT — swap matched English UI text for its
-+	// Big5 translation in place; the existing 2-byte renderer draws it. (Phase 3)
-+	if (_chtBig5 && _chtTextOn)
-+		CHT::translateInPlace(buf, sizeof(buf));
-+
- 	if (_isRTL)
- 		fakeBidiString(buf, false, sizeof(buf));
- 
-diff --git a/engines/scumm/verbs.cpp b/engines/scumm/verbs.cpp
-index 1637dd33..7a681f4f 100644
---- a/engines/scumm/verbs.cpp
-+++ b/engines/scumm/verbs.cpp
-@@ -1144,6 +1144,11 @@ void ScummEngine::drawVerb(int verb, int mode, Common::TextToSpeechManager::Acti
- 		_string[4].charset = vs->charset_nr;
- 		_string[4].xpos = isRtl ? vs->origLeft : vs->curRect.left + pixelXOffset;
- 		_string[4].ypos = vs->curRect.top + pixelYOffset;
-+		// Non-upstream (FOA CHT): the 12px Big5 verb glyphs are taller than the
-+		// original ~8px English verb font, so drawn at the box top they droop past
-+		// the verb-panel divider line. Lift them to vertically centre in the cell.
-+		if (_chtBig5)
-+			_string[4].ypos += _chtVerbYOffset;
- 		_string[4].right = _screenWidth - 1 + pixelXOffset;
- 		_string[4].center = vs->center;
- 
-diff --git a/engines/scumm/cjk_cht.h b/engines/scumm/cjk_cht.h
-new file mode 100644
-index 00000000..03c46299
---- /dev/null
-+++ b/engines/scumm/cjk_cht.h
-@@ -0,0 +1,40 @@
-+/* Indiana Jones and the Fate of Atlantis — Traditional Chinese (Big5) overlay.
-+ *
-+ * Non-upstream localisation helper. The scumm engine already renders 2-byte CJK
-+ * (loadCJKFont / get2byteCharPtr / printChar); this module supplies (a) the Big5
-+ * linear glyph index that matches the bitmap font built by tools/build_cjk_font.py,
-+ * and (b) an English->Big5 lookup so drawString() can swap translated UI text in
-+ * place before the existing renderer draws it. See PLAN.md Phase 3.
-+ */
-+#ifndef SCUMM_CJK_CHT_H
-+#define SCUMM_CJK_CHT_H
-+
-+#include "common/scummsys.h"
-+
-+namespace Common { class SeekableReadStream; }
-+
-+namespace Scumm {
-+namespace CHT {
-+
-+// Load the English->Big5 dictionary from a `atlantis_zh.tab` data stream.
-+// Format: one entry per line, `english<TAB>big5bytes`; blank lines and lines
-+// starting with '#' are ignored. Replaces any previously loaded table. The
-+// engine calls this once at font-load time; a missing file just means the
-+// built-in MVP fallback table is used.
-+void loadTable(Common::SeekableReadStream *s);
-+
-+// Big5 -> linear glyph index, identical to tools/build_cjk_font.py:
-+//   lead  0x81..0xFE                       (126 leads)
-+//   trail 0x40..0x7E -> 0..62 | 0xA1..0xFE -> 63..156   (157 per lead)
-+// Returns -1 for a byte pair that is not a valid Big5 character.
-+int big5LinearIndex(byte lead, byte trail);
-+
-+// Replace an English UI string in `buf` with its Big5 translation, in place,
-+// when an exact (whitespace-trimmed) match exists. No-op otherwise.
-+// `buf` is a NUL-terminated C string with room for `cap` bytes.
-+void translateInPlace(byte *buf, int cap);
-+
-+} // namespace CHT
-+} // namespace Scumm
-+
-+#endif
 diff --git a/engines/scumm/cjk_cht.cpp b/engines/scumm/cjk_cht.cpp
 new file mode 100644
 index 00000000..0472dd26
@@ -649,3 +325,361 @@ index 00000000..0472dd26
 +
 +} // namespace CHT
 +} // namespace Scumm
+diff --git a/engines/scumm/cjk_cht.h b/engines/scumm/cjk_cht.h
+new file mode 100644
+index 00000000..03c46299
+--- /dev/null
++++ b/engines/scumm/cjk_cht.h
+@@ -0,0 +1,40 @@
++/* Indiana Jones and the Fate of Atlantis — Traditional Chinese (Big5) overlay.
++ *
++ * Non-upstream localisation helper. The scumm engine already renders 2-byte CJK
++ * (loadCJKFont / get2byteCharPtr / printChar); this module supplies (a) the Big5
++ * linear glyph index that matches the bitmap font built by tools/build_cjk_font.py,
++ * and (b) an English->Big5 lookup so drawString() can swap translated UI text in
++ * place before the existing renderer draws it. See PLAN.md Phase 3.
++ */
++#ifndef SCUMM_CJK_CHT_H
++#define SCUMM_CJK_CHT_H
++
++#include "common/scummsys.h"
++
++namespace Common { class SeekableReadStream; }
++
++namespace Scumm {
++namespace CHT {
++
++// Load the English->Big5 dictionary from a `atlantis_zh.tab` data stream.
++// Format: one entry per line, `english<TAB>big5bytes`; blank lines and lines
++// starting with '#' are ignored. Replaces any previously loaded table. The
++// engine calls this once at font-load time; a missing file just means the
++// built-in MVP fallback table is used.
++void loadTable(Common::SeekableReadStream *s);
++
++// Big5 -> linear glyph index, identical to tools/build_cjk_font.py:
++//   lead  0x81..0xFE                       (126 leads)
++//   trail 0x40..0x7E -> 0..62 | 0xA1..0xFE -> 63..156   (157 per lead)
++// Returns -1 for a byte pair that is not a valid Big5 character.
++int big5LinearIndex(byte lead, byte trail);
++
++// Replace an English UI string in `buf` with its Big5 translation, in place,
++// when an exact (whitespace-trimmed) match exists. No-op otherwise.
++// `buf` is a NUL-terminated C string with room for `cap` bytes.
++void translateInPlace(byte *buf, int cap);
++
++} // namespace CHT
++} // namespace Scumm
++
++#endif
+diff --git a/engines/scumm/gfx.cpp b/engines/scumm/gfx.cpp
+index bf85f13c..d9f96624 100644
+--- a/engines/scumm/gfx.cpp
++++ b/engines/scumm/gfx.cpp
+@@ -532,6 +532,67 @@ void ScummEngine::markRectAsDirty(VirtScreenNumber virt, int left, int right, in
+  * graphics to the actual display, as needed. In addition, the 'shaking'
+  * code in the backend is controlled from here.
+  */
++// FOA CHT: blit the designed Chinese title overlay (印第安納·瓊斯 / 亞特蘭提斯之謎)
++// onto the title room. atlantis_title.spr = [u16 x][u16 y][u16 w][u16 h] + RGBA px.
++// Opaque px are colour-matched to the live palette so the text fades with the logo.
++void ScummEngine::drawAtlantisTitle() {
++	if (_game.id != GID_INDY4 || _currentRoom != 4)
++		return;
++	static int loaded = -1;
++	static uint16 tx = 0, ty = 0, tw = 0, th = 0;
++	static byte *trgba = nullptr;
++	if (loaded < 0) {
++		loaded = 0;
++		ScummFile *f = instantiateScummFile(false);
++		if (f && openFile(*f, Common::Path("atlantis_title.spr"))) {
++			tx = f->readUint16LE(); ty = f->readUint16LE();
++			tw = f->readUint16LE(); th = f->readUint16LE();
++			uint32 n = (uint32)tw * th * 4;
++			trgba = new byte[n];
++			f->read(trgba, n);
++			loaded = 1;
++		}
++		delete f;
++	}
++	if (loaded != 1)
++		return;
++
++	Graphics::Surface *screen = _system->lockScreen();
++	if (!screen || screen->format.bytesPerPixel != 1) {
++		if (screen) _system->unlockScreen();
++		return;
++	}
++	const byte *pal = _currentPalette;
++	// small RGB->index cache (palette is constant for this call)
++	uint32 cacheKey[64]; byte cacheVal[64]; int cacheN = 0;
++	for (uint16 py = 0; py < th && ty + py < (uint)screen->h; py++) {
++		byte *dst = (byte *)screen->getBasePtr(tx, ty + py);
++		const byte *src = trgba + (uint32)py * tw * 4;
++		for (uint16 px = 0; px < tw; px++, src += 4, dst++) {
++			if (tx + px >= (uint)screen->w)
++				break;
++			if (src[3] < 128)
++				continue;
++			uint32 key = ((uint32)src[0] << 16) | ((uint32)src[1] << 8) | src[2];
++			int idx = -1;
++			for (int c = 0; c < cacheN; c++)
++				if (cacheKey[c] == key) { idx = cacheVal[c]; break; }
++			if (idx < 0) {
++				int best = 0, bestd = 0x7fffffff;
++				for (int i = 0; i < 256; i++) {
++					int dr = src[0] - pal[i*3+0], dg = src[1] - pal[i*3+1], db = src[2] - pal[i*3+2];
++					int d = dr*dr + dg*dg + db*db;
++					if (d < bestd) { bestd = d; best = i; }
++				}
++				idx = best;
++				if (cacheN < 64) { cacheKey[cacheN] = key; cacheVal[cacheN] = (byte)best; cacheN++; }
++			}
++			*dst = (byte)idx;
++		}
++	}
++	_system->unlockScreen();
++}
++
+ void ScummEngine::drawDirtyScreenParts() {
+ 	// Update verbs
+ 	updateDirtyScreen(kVerbVirtScreen);
+@@ -548,6 +609,8 @@ void ScummEngine::drawDirtyScreenParts() {
+ 	} else {
+ 		updateDirtyScreen(kMainVirtScreen);
+ 	}
++
++	drawAtlantisTitle(); // FOA CHT title overlay (no-op outside the title room)
+ }
+ 
+ void ScummEngine_v6::drawDirtyScreenParts() {
+diff --git a/engines/scumm/input.cpp b/engines/scumm/input.cpp
+index ecef09cf..b9a4cf43 100644
+--- a/engines/scumm/input.cpp
++++ b/engines/scumm/input.cpp
+@@ -957,6 +957,20 @@ void ScummEngine_v3::processKeyboard(Common::KeyState lastKeyHit) {
+ }
+ 
+ void ScummEngine::processKeyboard(Common::KeyState lastKeyHit) {
++	// --- Non-upstream: Fate of Atlantis CHT — F8 toggles Chinese text,
++	// F9 toggles Chinese voice. Consumed early (F8 overrides the original
++	// restart key; restart is still reachable from the menu). ---
++	if (_chtBig5) {
++		if (lastKeyHit.keycode == Common::KEYCODE_F8 && lastKeyHit.hasFlags(0)) {
++			_chtTextOn = !_chtTextOn;
++			return;
++		}
++		if (lastKeyHit.keycode == Common::KEYCODE_F9 && lastKeyHit.hasFlags(0)) {
++			_chtVoiceOn = !_chtVoiceOn;
++			return;
++		}
++	}
++
+ 	// Enable the following special keys conditionally:
+ 	bool restartKeyEnabled = (VAR_RESTART_KEY == 0xFF || VAR(VAR_RESTART_KEY) != 0);
+ 	bool pauseKeyEnabled = (VAR_PAUSE_KEY == 0xFF || VAR(VAR_PAUSE_KEY) != 0);
+diff --git a/engines/scumm/module.mk b/engines/scumm/module.mk
+index 2cee05ab..12879f1e 100644
+--- a/engines/scumm/module.mk
++++ b/engines/scumm/module.mk
+@@ -11,6 +11,7 @@ MODULE_OBJS := \
+ 	cdda.o \
+ 	charset.o \
+ 	charset-fontdata.o \
++	cjk_cht.o \
+ 	costume.o \
+ 	cursor.o \
+ 	debugger.o \
+diff --git a/engines/scumm/scumm.cpp b/engines/scumm/scumm.cpp
+index f0bb1a53..94539d0e 100644
+--- a/engines/scumm/scumm.cpp
++++ b/engines/scumm/scumm.cpp
+@@ -2630,6 +2630,17 @@ void ScummEngine::syncSoundSettings() {
+ 		_musicEngine->setSfxVolume(soundVolumeSfx);
+ 	}
+ 
++	// Non-upstream: Fate of Atlantis CHT — F8 toggles subtitle language, F9
++	// toggles voice language, as two independent switches. Pin "Voice and Text"
++	// (subtitles visible + speech audible) so all four CH/EN combinations stay
++	// reachable; the original single voice-mode slider would otherwise hide the
++	// subtitle layer or mute the English voice and lock the player into only two
++	// of the four states.
++	if (_chtBig5) {
++		ConfMan.setBool("subtitles", true);
++		ConfMan.setBool("speech_mute", false);
++	}
++
+ 	if (ConfMan.getBool("speech_mute"))
+ 		_voiceMode = 2;
+ 	else
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index ae7b4bb7..8abc7533 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1761,6 +1761,20 @@ public:
+ 
+ 	// Somewhat hackish stuff for 2 byte support (Chinese/Japanese/Korean)
+ 	bool _useCJKMode = false;
++	// Non-upstream: Fate of Atlantis Traditional-Chinese (Big5) overlay active.
++	// When set, the ZH_TWN glyph path uses CHT::big5LinearIndex and drawString()
++	// swaps translated UI text in place. See cjk_cht.{h,cpp}.
++	bool _chtBig5 = false;
++	bool _chtTextOn = true;   // F8 toggles Chinese text on/off
++	bool _chtVoiceOn = true;  // F9 toggles Chinese voice on/off
++	// Optional larger font (24x24) used only for actor dialogue (displayDialog),
++	// while the verb UI keeps the 12x12 font. See cjk_cht / displayDialog guard.
++	byte *_cht24Ptr = nullptr;
++	int _cht24W = 0, _cht24H = 0;
++	int _chtVerbYOffset = -2; // vertical nudge to centre 12px Big5 verbs in the panel cells
++	// FOA CHT: overlay a designed Chinese title (印第安納·瓊斯 / 亞特蘭提斯之謎) on the
++	// title room, colour-matched to the current palette so it sits with the logo.
++	void drawAtlantisTitle();
+ 	bool _useMultiFont = false;
+ 	int _numLoadedFont = 0;
+ 	int _2byteShadow = 0;
+diff --git a/engines/scumm/sound.cpp b/engines/scumm/sound.cpp
+index bfb33823..99686731 100644
+--- a/engines/scumm/sound.cpp
++++ b/engines/scumm/sound.cpp
+@@ -23,6 +23,8 @@
+ #include "common/util.h"
+ #include "common/ptr.h"
+ #include "common/substream.h"
++#include "common/file.h"
++#include "common/hashmap.h"
+ 
+ #include "scumm/actor.h"
+ #include "scumm/file.h"
+@@ -480,6 +482,60 @@ void Sound::startTalkSound(uint32 offset, uint32 length, int mode, Audio::SoundH
+ 	Common::ScopedPtr<ScummFile> file;
+ 	uint32 origOffset = offset;
+ 
++	// --- Non-upstream: Fate of Atlantis Chinese voice redirect ---------------
++	// For each talkie line, if its MONSTER.SOU offset is in atlantis_voice.tab
++	// (decimal offset <TAB> external VOC filename), play the Chinese VOC instead.
++	// Drop an empty file "atlantis_voice_dump" in the game dir to log offsets
++	// (CHTVOICE\t<offset>) so we can map a heard line to its number. Off otherwise.
++	if (_vm->_game.id == GID_INDY4 && _vm->_chtVoiceOn && (mode & DIGI_SND_MODE_TALKIE)) {
++		static bool chtInit = false;
++		static bool chtDump = false;
++		static Common::HashMap<uint32, Common::String> chtMap;
++		if (!chtInit) {
++			chtInit = true;
++			chtDump = Common::File::exists("atlantis_voice_dump");
++			ScummFile *mf = _vm->instantiateScummFile(false);
++			if (mf && _vm->openFile(*mf, Common::Path("atlantis_voice.tab"))) {
++				while (!mf->eos()) {
++					Common::String line = mf->readLine();
++					uint32 tab = line.findFirstOf('\t');
++					if (line.empty() || line[0] == '#' || tab == Common::String::npos)
++						continue;
++					uint32 off = (uint32)atol(line.c_str());
++					Common::String fn(line.c_str() + tab + 1);
++					fn.trim();
++					if (!fn.empty())
++						chtMap[off] = fn;
++				}
++			}
++			delete mf;
++		}
++		if (chtDump)
++			warning("%s", Common::String::format("CHTVOICE\t%u", (unsigned)offset).c_str());
++		Common::HashMap<uint32, Common::String>::iterator it = chtMap.find(offset);
++		if (it != chtMap.end()) {
++			ScummFile *vf = _vm->instantiateScummFile(false);
++			if (vf && _vm->openFile(*vf, Common::Path(it->_value))) {
++				Audio::SeekableAudioStream *st =
++					Audio::makeVOCStream(vf, Audio::FLAG_UNSIGNED, DisposeAfterUse::YES);
++				if (st) {
++					Audio::SoundHandle *h = handle ? handle : _talkChannelHandle;
++					_mixer->stopHandle(*h);
++					_mixer->playStream(Audio::Mixer::kSpeechSoundType, h, st);
++					_digiSndMode |= mode;
++					resetSpeechTimer();
++					_mouthSyncMode = false;
++					warning("%s", Common::String::format("CHTVOICE-PLAY\t%u\t%s",
++						(unsigned)offset, it->_value.c_str()).c_str());
++					return;
++				}
++			} else {
++				delete vf;
++			}
++		}
++	}
++	// -------------------------------------------------------------------------
++
+ 	if (_vm->_game.id == GID_CMI || (_vm->_game.id == GID_DIG && !(_vm->_game.features & GF_DEMO))) {
+ 		// COMI (full & demo), DIG (full)
+ 		_digiSndMode |= mode;
+diff --git a/engines/scumm/string.cpp b/engines/scumm/string.cpp
+index ebb998ec..6e03f84f 100644
+--- a/engines/scumm/string.cpp
++++ b/engines/scumm/string.cpp
+@@ -27,6 +27,7 @@
+ 
+ #include "scumm/actor.h"
+ #include "scumm/charset.h"
++#include "scumm/cjk_cht.h"
+ #include "scumm/dialogs.h"
+ #include "scumm/file.h"
+ #include "scumm/imuse_digi/dimuse_engine.h"
+@@ -1030,6 +1031,23 @@ void ScummEngine_v2::drawSentence() {
+ 	drawString(2, (byte *)string);
+ }
+ 
++// Non-upstream: for Fate of Atlantis CHT, swap the 2-byte font to the larger
++// 24x24 dialogue font for the duration of displayDialog (auto-restored on any
++// return), so spoken text is bigger while the verb UI keeps its 12x12 font.
++struct ChtDialogFont {
++	ScummEngine *_vm; byte *_p; int _w, _h; bool _on;
++	ChtDialogFont(ScummEngine *vm) : _vm(vm), _on(false) {
++		if (vm->_chtBig5 && vm->_chtTextOn && vm->_cht24Ptr) {
++			_p = vm->_2byteFontPtr; _w = vm->_2byteWidth; _h = vm->_2byteHeight;
++			vm->_2byteFontPtr = vm->_cht24Ptr; vm->_2byteWidth = vm->_cht24W; vm->_2byteHeight = vm->_cht24H;
++			_on = true;
++		}
++	}
++	~ChtDialogFont() {
++		if (_on) { _vm->_2byteFontPtr = _p; _vm->_2byteWidth = _w; _vm->_2byteHeight = _h; }
++	}
++};
++
+ void ScummEngine::displayDialog() {
+ 	Actor *a;
+ 	if (_game.heversion >= 60 && _haveMsg == 3) {
+@@ -1040,6 +1058,8 @@ void ScummEngine::displayDialog() {
+ 	if (!_haveMsg)
+ 		return;
+ 
++	ChtDialogFont _chtDlgFont(this);   // 24x24 dialogue font (auto-restore)
++
+ 	_force2ByteCharHeight = false;
+ 
+ 	if (_game.version >= 4 && _game.version <= 6) {
+@@ -1365,6 +1385,11 @@ void ScummEngine::drawString(int a, const byte *msg, Common::TextToSpeechManager
+ 
+ 	convertMessageToString(msg, buf, sizeof(buf));
+ 
++	// Non-upstream: Fate of Atlantis CHT — swap matched English UI text for its
++	// Big5 translation in place; the existing 2-byte renderer draws it. (Phase 3)
++	if (_chtBig5 && _chtTextOn)
++		CHT::translateInPlace(buf, sizeof(buf));
++
+ 	if (_isRTL)
+ 		fakeBidiString(buf, false, sizeof(buf));
+ 
+diff --git a/engines/scumm/verbs.cpp b/engines/scumm/verbs.cpp
+index 1637dd33..7a681f4f 100644
+--- a/engines/scumm/verbs.cpp
++++ b/engines/scumm/verbs.cpp
+@@ -1144,6 +1144,11 @@ void ScummEngine::drawVerb(int verb, int mode, Common::TextToSpeechManager::Acti
+ 		_string[4].charset = vs->charset_nr;
+ 		_string[4].xpos = isRtl ? vs->origLeft : vs->curRect.left + pixelXOffset;
+ 		_string[4].ypos = vs->curRect.top + pixelYOffset;
++		// Non-upstream (FOA CHT): the 12px Big5 verb glyphs are taller than the
++		// original ~8px English verb font, so drawn at the box top they droop past
++		// the verb-panel divider line. Lift them to vertically centre in the cell.
++		if (_chtBig5)
++			_string[4].ypos += _chtVerbYOffset;
+ 		_string[4].right = _screenWidth - 1 + pixelXOffset;
+ 		_string[4].center = vs->center;
+ 
