@@ -51,8 +51,10 @@ docker run --rm -v $PWD:/work -w /work debian:12-slim bash scripts/build_windows
 
 ## macOS:GitHub Action 編 → 抓回本機注入(參考 mac-app-cross-pack)
 
-- `.github/workflows/build-macos.yml`:**`runs-on: macos-14`**(⚠️ **macos-13 已退役 → run 永遠 queued 卡死**;macos-14 = Apple Silicon/arm64;舊 Intel 要 `macos-15-intel`)。**自編 SDL2 arm64-native**(`./configure --disable-shared --enable-static`,**不加 `-arch`**),**不用 `brew sdl2`**(brew 的會變 sdl2-compat → 黑畫面);`git clone --depth1` + patch;**乾淨 `./configure`**(對齊 willy)關壓縮編解碼;`dylibbundler` 收非系統 dylib 進 `.app/Contents/libs`;上傳 `.app`。
-  - ⚠️ **不要做 universal 單次雙弧**(`CFLAGS="-arch x86_64 -arch arm64 -mmacosx-version-min=11.0"`):min-version 會餵進 ScummVM configure 版本解析 → 炸 `test: ...integer expression expected`(line ~3228)。**ScummVM configure 也沒有 `--extra-cflags/ldflags`**(寫了 "unrecognized option")。要 Intel 覆蓋就**分弧各 configure+make 一次再 `lipo` 合併**,別單次 `-arch` 雙弧。預設 arm64-native 即可(macos-14 本就 arm64,涵蓋現今絕大多數 Mac;willy 也是 arm64-native)。
+- `.github/workflows/build-macos.yml`:**universal(arm64 + x86_64)走「分弧 native 編 + lipo 合併」三 job**:
+  - `build`(matrix):**`macos-14`** 編 arm64、**`macos-15-intel`** 編 x86_64(⚠️ **macos-13 已退役 → queued 卡死;Intel 一律用 `macos-15-intel`**)。每弧**自編 SDL2 native**(`./configure --disable-shared --enable-static`,**不加 `-arch`**)+ **乾淨 `./configure`**(對齊 willy)關壓縮編解碼,各上傳該弧 `scummvm` binary。**不用 `brew sdl2`**(會變 sdl2-compat → 黑畫面)。
+  - `bundle`(`needs: build`):download 兩弧 binary → `lipo -create arm64 x86_64 -output scummvm`(`lipo -info` 應印 `x86_64 arm64`)→ 組 `.app` → 上傳 `.app` artifact。
+  - ⚠️ **絕不單次 `-arch x86_64 -arch arm64 -mmacosx-version-min=...`**:min-version 會餵進 ScummVM configure 版本解析 → 炸 `test: ...integer expression expected`(~line 3228);**ScummVM configure 也沒有 `--extra-cflags/ldflags`**(寫了 "unrecognized option")。所以才要分弧 native + lipo。SDL2 靜態連結 → 無 dylib 要 bundle,lipo 後的 universal binary 自包。
 - 觸發 + 抓回:`gh workflow run build-macos.yml` → `gh run watch <id> --exit-status` → `gh run download <id>`。
 - `scripts/package_macos_local.sh <下載的.app>`:把 TTS 語音 + 你的遊戲資料注入 `.app/Contents/Resources/data/` → full `.app` 到 `dist-all/macos/`(個人自留)。
 - 細節(Gatekeeper `xattr -dr com.apple.quarantine`、APFS DMG Windows 讀不到改 `.tar.gz`、universal lipo)見 `mac-app-cross-pack` skill。

@@ -1,17 +1,19 @@
 name: build-macos
 
-# macOS 只能在 macOS 上編,所以走 GitHub Action:自編 SDL2 → 套 patch →
-# 編 scumm 引擎(arm64-native,對齊 willy 的作法)→ 上傳 .app artifact。
+# macOS 只能在 macOS 上編,所以走 GitHub Action。產出 **universal(arm64 + x86_64)** .app:
+#   build-arm64 (macos-14)        → 自編 SDL2 arm64 → 編 scummvm(arm64)
+#   build-intel (macos-15-intel)  → 自編 SDL2 x86_64 → 編 scummvm(x86_64)
+#   bundle      (macos-14)        → lipo 兩弧合成 universal binary → 組 .app artifact
 # 抓回本機後,用 scripts/package_macos_local.sh 合進中文語音 + 遊戲資料成完整包到 dist-all。
 # (Linux 走本機 scripts/package_appimage.sh;Windows 走本機 scripts/build_windows_docker.sh。)
 #
+# 為何分弧:單次 `-arch x86_64 -arch arm64 -mmacosx-version-min=...` 會把 min-version 餵進
+# ScummVM configure 的版本解析 → 炸 "integer expression expected"(configure ~line 3228);
+# 且 ScummVM configure 沒有 --extra-cflags/ldflags。所以每弧 **native 單弧、乾淨 configure**
+# (對齊 willy 的乾淨 configure),最後 lipo 合併。Intel 一定要用 macos-15-intel(macos-13 已退役)。
+#
 # 壓縮音訊編解碼全關(FOA + 中文語音都是 raw VOC),相依縮到只剩自編的 SDL2。
 # SDL2 一律從原始碼自編,不用 brew 的 sdl2(brew 的會變 sdl2-compat → 黑畫面)。
-#
-# ⚠️ 不做 universal(-arch x86_64 -arch arm64):會餵 -mmacosx-version-min 進 ScummVM
-# configure 的版本解析,炸出 "integer expression expected"。willy(reference)也是
-# arm64-native + 乾淨 configure。macos-14 本來就 arm64,涵蓋現今絕大多數 Mac。
-# 若日後要 Intel,改走「分弧各編一次 + lipo 合併」而非單次 -arch 雙弧。
 
 on:
   workflow_dispatch:
@@ -23,14 +25,22 @@ env:
   SDL2_VER: '2.30.9'
 
 jobs:
-  macos:
-    # macos-13 已退役(排隊卡死);macos-14 = Apple Silicon(arm64),對齊 willy。
-    runs-on: macos-14
+  # ---- 每弧 native 單弧編譯,產出該弧的 scummvm binary ----
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-14        # Apple Silicon
+          - arch: x86_64
+            runner: macos-15-intel  # Intel(macos-13 已退役,Intel 改用 15-intel)
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
       - name: build tools (no SDL2 from brew)
-        run: brew install nasm pkg-config python3 dylibbundler || true
-      - name: self-build SDL2 (arm64-native, static)
+        run: brew install nasm pkg-config dylibbundler || true
+      - name: self-build SDL2 (native ${{ matrix.arch }}, static)
         run: |
           curl -L "https://github.com/libsdl-org/SDL/releases/download/release-${SDL2_VER}/SDL2-${SDL2_VER}.tar.gz" | tar xz
           cd "SDL2-${SDL2_VER}"
@@ -41,11 +51,11 @@ jobs:
           git clone --depth 1 https://github.com/scummvm/scummvm.git sv
           cd sv
           git apply "$GITHUB_WORKSPACE/patches/scumm-cjk.patch" || patch -p1 < "$GITHUB_WORKSPACE/patches/scumm-cjk.patch"
-      - name: configure + build (arm64-native, scumm only, self SDL2)
+      - name: configure + build (native ${{ matrix.arch }}, scumm only, self SDL2)
         run: |
           cd sv
-          # 乾淨 configure(對齊 willy);不塞 -arch / -mmacosx-version-min,
-          # 否則 ScummVM configure 的版本解析會炸 "integer expression expected"。
+          # 乾淨 configure(對齊 willy):每個 job 在自己原生弧上跑,不塞 -arch /
+          # -mmacosx-version-min,避免 ScummVM configure 版本解析炸掉。
           PATH="$GITHUB_WORKSPACE/sdl2/bin:$PATH" \
           ./configure --disable-all-engines --enable-engine=scumm \
             --with-sdl-prefix="$GITHUB_WORKSPACE/sdl2" --enable-release \
@@ -53,15 +63,32 @@ jobs:
             --disable-faad --disable-mpeg2 --disable-a52 --disable-theoradec --disable-vpx \
             --disable-png --disable-jpeg --disable-gif --disable-freetype2 --disable-libcurl
           make -j"$(sysctl -n hw.ncpu)"
-          lipo -info scummvm || file scummvm
-      - name: build CHT text table + stage engine .app
+          file scummvm
+      - uses: actions/upload-artifact@v4
+        with:
+          name: scummvm-${{ matrix.arch }}
+          path: sv/scummvm
+
+  # ---- lipo 合併兩弧 → universal binary → 組 .app ----
+  bundle:
+    needs: build
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install python3 || true
+      - uses: actions/download-artifact@v4
+        with: { name: scummvm-arm64, path: bin-arm64 }
+      - uses: actions/download-artifact@v4
+        with: { name: scummvm-x86_64, path: bin-x86_64 }
+      - name: lipo -> universal + stage .app
         run: |
+          chmod +x bin-arm64/scummvm bin-x86_64/scummvm
+          lipo -create bin-arm64/scummvm bin-x86_64/scummvm -output scummvm
+          lipo -info scummvm   # 應印 "x86_64 arm64"
           python3 tools/build_translation.py --out atlantis_zh.tab
           A="dist/IndyAtlantis-CHT.app/Contents"
-          mkdir -p "$A/MacOS" "$A/Resources/data" "$A/libs"
-          cp sv/scummvm "$A/MacOS/scummvm"
-          # fold any non-system dylibs into the .app (SDL2 is static, so usually none)
-          dylibbundler -od -b -x "$A/MacOS/scummvm" -d "$A/libs" -p @executable_path/../libs || true
+          mkdir -p "$A/MacOS" "$A/Resources/data"
+          cp scummvm "$A/MacOS/scummvm"
           cp atlantis_zh.tab fonts/atlantis_zh16.dcjk fonts/atlantis_zh24.dcjk fonts/atlantis_title.spr "$A/Resources/data/"
           printf '#!/bin/sh\ncd "$(dirname "$0")"\nexec ./scummvm --extrapath=../Resources/data -p ../Resources/data --auto-detect "$@"\n' > "$A/MacOS/launch.sh"
           chmod +x "$A/MacOS/launch.sh" "$A/MacOS/scummvm"
