@@ -269,4 +269,14 @@ Linux full AppImage 獨立啟動已驗證(內嵌遊戲 + 中文標題正常);mac
 
 ---
 
+## 姊妹作:聖戰奇兵
+
+同一套「不改原版、改 ScummVM 攔字重畫」的手法,我們也搬去做了印第三部曲電影本身的遊戲——**《印第安納·瓊斯:聖戰奇兵》**(*Last Crusade*,1989 LucasArts,FM-Towns 版,SCUMM v3)。那是當年**軟體世界**帶進台灣架上、六片磁片 NT$340 卻一句中文都沒有的那盒。這次連火車車廂的標題都補上了台灣片名,還給每個角色配了對味的中文(與英文)聲線:
+
+[![印第安納·瓊斯:聖戰奇兵 — 火車車廂標題疊上中文片名](screenshots/crusade_cht_title.png)](https://github.com/wicanr2/indiana-jones-and-last-crusade-cht)
+
+> ▶ **[印第安納·瓊斯:聖戰奇兵 繁中化](https://github.com/wicanr2/indiana-jones-and-last-crusade-cht)** — per-character 中文/英文配音(靜態反組譯講者地圖)、火車車廂標題中文疊圖、三平台開箱即玩。
+
+---
+
 > 版權:本 repo 只含工具、patch、翻譯表與文件。**遊戲原始資料、語音、執行檔、字型一律不入庫**,請自備合法 Steam / CD 版。
